@@ -4,7 +4,28 @@ Keep entries most-recent-first. Record reproducible evidence and blockers, but
 never credentials, access tokens, refresh tokens, client secrets, or customer
 payloads.
 
-## 2026-07-26 — M0 development baseline complete locally
+## 2026-07-26 — M2 offline implementation complete; live acceptance blocked
+
+- Added M1 Customer-only and M2 six-table pipeline specifications; both pass
+  the repository pipeline-spec validator.
+- Added simulator assertions for unique source IDs, lossless raw-ID parity,
+  and retention of inactive customers, vendors, accounts, and items.
+- The scoped suite now passes 26 tests with 2 expected skips.
+- Built and inspected
+  `lakeflow_community_connectors_quickbooks-0.1.0-py3-none-any.whl`; it contains
+  connector code, schemas, connection spec, documentation, and pipeline specs.
+- The QuickBooks connection spec passes CLI parsing and option validation as a
+  `u2m` OAuth connector with `page_size` as its source option allowlist.
+- Live source attempt: the saved QuickBooks access token returned HTTP 401.
+  Forced refresh returned HTTP 400, so Intuit reauthorization is required.
+  A new authorization flow is open and waiting for the user-provided one-time
+  verification code.
+- Databricks identity attempt: the saved project PAT was rejected as invalid.
+  A new PAT or another valid Databricks authentication method is required
+  before creating the COMMUNITY connection, uploading wheels, or running the
+  M1/M2 pipeline.
+
+## 2026-07-26 — M0 development baseline complete and pushed
 
 - Created a Python 3.13 development environment with PySpark 4.2.0.
 - Added focused coverage for missing credentials, invalid environments,
@@ -17,10 +38,12 @@ payloads.
   entities and multi-page fixtures.
 - Evidence:
   `PYTHONPATH=src .venv/bin/python -m pytest tests/unit/sources/quickbooks -q`
-  passed 24 tests with 2 expected skips.
+  initially passed 24 tests with 2 expected skips; the M2 integrity additions
+  raised this to 26 passing tests.
 - Scoped Ruff checks, Python compilation, and `git diff --check` pass.
 - The branch is at the same upstream commit as `upstream/master` (`c964722`).
-- Commit and fork push are still pending; M1 live validation is next.
+- Commit `045d7cd` was pushed to
+  `origin/feat/quickbooks-connector`; M1 live validation is next.
 
 ## 2026-07-26 — M0–M2 implementation started
 
@@ -44,7 +67,7 @@ payloads.
 - [x] Entity-specific schemas
 - [x] Unit tests for configuration, pagination, HTTP failures, retries, and normalization
 - [x] Repository generic connector tests pass
-- [ ] Branch committed and pushed to the fork
+- [x] Branch committed and pushed to the fork
 
 ### M1 — Customer end to end
 
@@ -55,12 +78,12 @@ payloads.
 
 ### M2 — six-table snapshot
 
-- [ ] customers
-- [ ] vendors
-- [ ] accounts
-- [ ] items
-- [ ] invoices
-- [ ] bills
-- [ ] Simulator and live-source parity validation
+- [x] customers implementation and simulator coverage
+- [x] vendors implementation and simulator coverage
+- [x] accounts implementation and simulator coverage
+- [x] items implementation and simulator coverage
+- [x] invoices implementation and simulator coverage
+- [x] bills implementation and simulator coverage
+- [ ] Live-source parity validation
 - [ ] No duplicate primary keys in any destination table
 - [ ] Source/destination ID parity for every table

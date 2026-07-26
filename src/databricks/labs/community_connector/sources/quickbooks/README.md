@@ -16,16 +16,25 @@ Implemented:
 - Bounded retries for throttling, transient HTTP failures, and network errors.
 - Snapshot ingestion metadata.
 
-Not implemented yet:
+Validation available:
 
-- Simulator corpus and generic connector tests.
-- Live Intuit sandbox validation.
+- Focused unit tests for configuration, pagination, retries, HTTP failures,
+  response validation, and typed normalization.
+- Source simulator corpus and the repository's generic connector contract
+  suite for all six tables.
+- `pipeline_spec.customer.yaml` for the M1 Customer smoke pipeline.
+- `pipeline_spec.yaml` for the M2 six-table snapshot pipeline.
+
+Not implemented or externally validated yet:
+
+- Live Intuit sandbox validation (the current development authorization must
+  be renewed).
 - Snapshot-to-CDC handoff.
 - QuickBooks CDC time-window subdivision.
 - `cdc_with_deletes` and deletion reads.
 - Versioned incremental offsets.
-- Generated single-file deployment artifact.
-- Databricks workspace pipeline validation.
+- Databricks workspace pipeline validation (the current development PAT must
+  be renewed).
 
 ## Connection parameters
 
@@ -52,3 +61,22 @@ refresh tokens.
 The scaffold is intentionally snapshot-only. Do not change table metadata to
 `cdc` or `cdc_with_deletes` until the checkpoint and delete invariants in
 `ARCHITECTURE.md` are implemented and covered by simulator and live tests.
+
+Run the offline connector suite from the repository root:
+
+```bash
+PYTHONPATH=src .venv/bin/python -m pytest tests/unit/sources/quickbooks -q
+```
+
+Once QuickBooks and Databricks credentials are current, deploy the Customer
+smoke pipeline first and then update it to the six-table spec:
+
+```bash
+community-connector create_pipeline quickbooks quickbooks_customer_m1 \
+  --pipeline-spec \
+  src/databricks/labs/community_connector/sources/quickbooks/pipeline_spec.customer.yaml
+
+community-connector update_pipeline quickbooks_customer_m1 \
+  --pipeline-spec \
+  src/databricks/labs/community_connector/sources/quickbooks/pipeline_spec.yaml
+```
