@@ -41,6 +41,8 @@ AUTH_TYPE_CHOICES = (
     AUTH_TYPE_U2M_PER_USER,
 )
 
+_ALLOWED_LOOPBACK_REDIRECT_HOSTS = frozenset({"127.0.0.1", "localhost"})
+
 # Wire-level value to put in the ``community_oauth_flow`` option.
 # Static mode intentionally has no entry: the option is *omitted* so the
 # connection resolves to the plain CONNECTION_COMMUNITY securable kind.
@@ -182,6 +184,8 @@ def run_u2m_authorization_code_flow(
     authorization_endpoint: str,
     scope: Optional[str],
     redirect_port: Optional[int] = None,
+    redirect_host: str = "127.0.0.1",
+    redirect_path: str = "/callback",
     extra_auth_params: Optional[dict] = None,
     use_pkce: bool = True,
     open_browser: bool = True,
@@ -190,9 +194,11 @@ def run_u2m_authorization_code_flow(
 ) -> Tuple[str, str, str]:
     """Drive the OAuth 2.0 authorization-code flow against a loopback redirect.
 
-    Returns ``(authorization_code, pkce_verifier, redirect_uri)``. When
-    ``use_pkce`` is False the flow omits the PKCE challenge and the returned
-    ``pkce_verifier`` is an empty string.
+    Returns ``(authorization_code, pkce_verifier, redirect_uri)``. A verifier
+    is always returned because Databricks COMMUNITY U2M connections require
+    the option. When ``use_pkce`` is False the authorization request omits the
+    PKCE challenge; providers that do not implement PKCE can ignore the
+    verifier sent during token exchange.
 
     ``use_pkce`` defaults to True (PKCE is harmless for confidential clients
     and required for public ones); pass False to honor a connector spec's
@@ -206,16 +212,25 @@ def run_u2m_authorization_code_flow(
     Raises ``RuntimeError`` if the user does not complete the flow within
     ``timeout_seconds`` or the IdP returns an error / mismatched state.
     """
+    if redirect_host not in _ALLOWED_LOOPBACK_REDIRECT_HOSTS:
+        raise ValueError(
+            "OAuth redirect_host must be a loopback host: "
+            + ", ".join(sorted(_ALLOWED_LOOPBACK_REDIRECT_HOSTS))
+        )
+    if (
+        not redirect_path.startswith("/")
+        or redirect_path.startswith("//")
+        or any(character in redirect_path for character in ("?", "#", " "))
+    ):
+        raise ValueError("OAuth redirect_path must be an absolute URL path")
     if redirect_port is None or redirect_port == 0:
         redirect_port = _pick_free_port()
-    # RFC 8252 §7.3 and Google's desktop-app docs both recommend the IPv4
-    # loopback literal here, not "localhost". The server below binds to
-    # 127.0.0.1 — using "localhost" in the redirect URI breaks on systems
-    # whose resolver returns ::1 first (browser hits IPv6 ::1 while our
-    # server only listens on 127.0.0.1 → ERR_CONNECTION_REFUSED).
-    redirect_uri = f"http://127.0.0.1:{redirect_port}/callback"
+    # The server always binds to IPv4 loopback. Most providers should retain
+    # the 127.0.0.1 default; redirect_host exists for providers that require
+    # an exactly registered localhost URI.
+    redirect_uri = f"http://{redirect_host}:{redirect_port}{redirect_path}"
 
-    verifier = ""
+    verifier, challenge = _generate_pkce()
     state = secrets.token_urlsafe(24)
 
     auth_params = {
@@ -225,7 +240,6 @@ def run_u2m_authorization_code_flow(
         "state": state,
     }
     if use_pkce:
-        verifier, challenge = _generate_pkce()
         auth_params["code_challenge"] = challenge
         auth_params["code_challenge_method"] = "S256"
     if scope:

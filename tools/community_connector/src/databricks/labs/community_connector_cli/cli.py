@@ -357,7 +357,9 @@ _OAUTH_SPEC_KEY_ALIASES = {
 
 # oauth-block keys that steer the local OAuth flow but are NOT stored as
 # connection options (they describe how to obtain the grant, not the grant).
-_OAUTH_FLOW_CONTROL_KEYS = frozenset({"flow", "pkce", "extra_auth_params"})
+_OAUTH_FLOW_CONTROL_KEYS = frozenset(
+    {"flow", "pkce", "extra_auth_params", "redirect_host", "redirect_path"}
+)
 
 # Tokens UC mints/injects into the connector at query time — never supplied by
 # the user at connection-creation time, so they are not required by the CLI
@@ -525,15 +527,17 @@ def _apply_auth_type(
             authorization_endpoint=options_dict["authorization_endpoint"],
             scope=options_dict.get("oauth_scope"),
             redirect_port=redirect_port,
+            redirect_host=str(controls.get("redirect_host", "127.0.0.1")),
+            redirect_path=str(controls.get("redirect_path", "/callback")),
             extra_auth_params=extra_auth_params,
             use_pkce=use_pkce,
             echo=lambda msg: click.echo(msg),
         )
         options_dict["authorization_code"] = code
         options_dict["oauth_redirect_uri"] = redirect_uri
-        # Only store a verifier when PKCE was actually used.
-        if verifier:
-            options_dict["pkce_verifier"] = verifier
+        # Databricks requires this option for every COMMUNITY U2M connection,
+        # including providers whose authorization endpoint does not use PKCE.
+        options_dict["pkce_verifier"] = verifier
         click.echo("  ✓ Captured authorization code from loopback redirect.")
 
 

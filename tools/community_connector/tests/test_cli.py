@@ -1277,6 +1277,8 @@ class TestOAuthSpecBlockShape:
             "oauth": {
                 "flow": "u2m",
                 "pkce": False,
+                "redirect_host": "localhost",
+                "redirect_path": "/oauth/callback",
                 "scopes": "https://www.googleapis.com/auth/gmail.readonly",
                 "authorization_url": "https://accounts.google.com/o/oauth2/v2/auth",
                 "token_url": "https://oauth2.googleapis.com/token",
@@ -1328,6 +1330,8 @@ class TestOAuthSpecBlockShape:
             "access_type": "offline",
             "prompt": "consent",
         }
+        assert kwargs["redirect_host"] == "localhost"
+        assert kwargs["redirect_path"] == "/oauth/callback"
 
         opts = mock_ws.api_client.do.call_args.kwargs["body"]["options"]
         assert opts["authorization_endpoint"] == (
@@ -1337,8 +1341,16 @@ class TestOAuthSpecBlockShape:
         assert opts["oauth_scope"] == "https://www.googleapis.com/auth/gmail.readonly"
         assert opts["community_oauth_flow"] == "u2m"
         # Flow-control keys must never be stored on the connection.
-        for leaked in ("flow", "pkce", "extra_auth_params", "scopes",
-                       "authorization_url", "token_url"):
+        for leaked in (
+            "flow",
+            "pkce",
+            "extra_auth_params",
+            "redirect_host",
+            "redirect_path",
+            "scopes",
+            "authorization_url",
+            "token_url",
+        ):
             assert leaked not in opts
 
     @patch(
@@ -1527,15 +1539,17 @@ class TestOAuthSpecBlockShape:
     def test_pkce_false_skips_pkce(
         self, mock_workspace_client, mock_load_spec, mock_oauth
     ):
-        """oauth.pkce: false runs the flow with use_pkce=False and stores no
-        pkce_verifier."""
+        """oauth.pkce: false omits the challenge but retains UC's required verifier."""
         runner = CliRunner()
         mock_load_spec.return_value = self._SPEC  # has pkce: False
         mock_ws = MagicMock()
         mock_workspace_client.return_value = mock_ws
         mock_ws.api_client.do.return_value = {"name": "test", "connection_id": "123"}
-        # No-PKCE flow returns an empty verifier.
-        mock_oauth.return_value = ("CODE", "", "http://127.0.0.1:5/callback")
+        mock_oauth.return_value = (
+            "CODE",
+            "COMPATIBILITY_VERIFIER",
+            "http://127.0.0.1:5/callback",
+        )
 
         result = runner.invoke(
             main,
@@ -1551,7 +1565,7 @@ class TestOAuthSpecBlockShape:
         assert result.exit_code == 0, result.output
         assert mock_oauth.call_args.kwargs["use_pkce"] is False
         opts = mock_ws.api_client.do.call_args.kwargs["body"]["options"]
-        assert "pkce_verifier" not in opts
+        assert opts["pkce_verifier"] == "COMPATIBILITY_VERIFIER"
 
     @patch(
         "databricks.labs.community_connector_cli.cli.run_u2m_authorization_code_flow"

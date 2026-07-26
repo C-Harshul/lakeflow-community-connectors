@@ -4,6 +4,31 @@ Keep entries most-recent-first. Record reproducible evidence and blockers, but
 never credentials, access tokens, refresh tokens, client secrets, or customer
 payloads.
 
+## 2026-07-26 — M1 Databricks pipeline validated end to end
+
+- Authenticated Databricks profile `numina-quickbooks` against workspace
+  `7474654957615251`.
+- Created isolated schema `workspace.quickbooks_m1`.
+- Created and ran the serverless pipeline `quickbooks_customer_m1`
+  (`b13a2a15-ec62-45b4-8493-256729be0336`); update
+  `6a9985b5-4fbe-462c-b251-3eedeec5025c` completed successfully.
+- Uploaded the framework and QuickBooks wheels to the managed
+  `workspace.quickbooks_m1.community_connector` volume.
+- Materialized `workspace.quickbooks_m1.customers` with the expected 14-column
+  schema.
+- Destination validation returned 29 rows, 29 distinct IDs, and zero empty
+  `raw_json` payloads.
+- A direct, non-logging set comparison proved that the 29 live QuickBooks
+  Customer IDs exactly match the 29 Databricks destination IDs.
+- M1 used a temporary Unity Catalog static connection containing only a
+  short-lived access token. It contains no client secret or refresh token.
+- Managed Unity Catalog U2M remains blocked: the first Databricks token
+  exchange timed out and the retry reached Intuit but returned
+  `invalid_client`. The generic CLI now supports provider-specific loopback
+  redirect host/path controls and always supplies Databricks' required U2M
+  verifier; QuickBooks also declares Intuit's `header_only` credential
+  exchange.
+
 ## 2026-07-26 — M1 live QuickBooks source validated
 
 - Completed a new Intuit OAuth authorization against a QuickBooks sandbox.
@@ -103,8 +128,8 @@ payloads.
 
 - [x] Valid QuickBooks sandbox authorization and realm proven
 - [x] Customer source snapshot succeeds
-- [ ] Customer destination table created in Databricks
-- [ ] QuickBooks IDs and Databricks IDs/counts match
+- [x] Customer destination table created in Databricks
+- [x] QuickBooks IDs and Databricks IDs/counts match
 
 ### M2 — six-table snapshot
 

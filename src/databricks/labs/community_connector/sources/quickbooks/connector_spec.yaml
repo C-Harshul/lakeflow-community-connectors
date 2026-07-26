@@ -36,8 +36,11 @@ connection:
   oauth:
     flow: u2m
     pkce: false
+    redirect_host: localhost
+    redirect_path: /oauth/callback
     scopes: com.intuit.quickbooks.accounting
     authorization_url: https://appcenter.intuit.com/connect/oauth2
     token_url: https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer
+    oauth_credential_exchange_method: header_only
 
 external_options_allowlist: "page_size"

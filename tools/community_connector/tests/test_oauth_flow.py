@@ -79,6 +79,69 @@ def test_run_u2m_flow_round_trip(monkeypatch):
     assert 43 <= len(verifier) <= 128
 
 
+def test_run_u2m_flow_supports_provider_specific_loopback_uri(monkeypatch):
+    """Providers can require an exactly registered localhost callback path."""
+    port = _pick_free_port()
+    captured = {}
+
+    def fake_open(url):
+        from urllib.parse import parse_qs, urlparse
+
+        qs = parse_qs(urlparse(url).query)
+        captured["redirect_uri"] = qs["redirect_uri"][0]
+
+        def hit_callback():
+            time.sleep(0.1)
+            urllib.request.urlopen(
+                f"{captured['redirect_uri']}?code=THE_CODE&state={qs['state'][0]}",
+                timeout=5,
+            ).read()
+
+        threading.Thread(target=hit_callback, daemon=True).start()
+        return True
+
+    monkeypatch.setattr(oauth_flow.webbrowser, "open", fake_open)
+
+    code, _verifier, redirect_uri = run_u2m_authorization_code_flow(
+        client_id="cid",
+        authorization_endpoint="https://example.com/authorize",
+        scope="repo",
+        redirect_port=port,
+        redirect_host="localhost",
+        redirect_path="/oauth/callback",
+        open_browser=True,
+        timeout_seconds=5,
+        echo=lambda *_args, **_kw: None,
+    )
+
+    assert code == "THE_CODE"
+    assert redirect_uri == f"http://localhost:{port}/oauth/callback"
+    assert captured["redirect_uri"] == redirect_uri
+
+
+@pytest.mark.parametrize(
+    ("redirect_host", "redirect_path"),
+    [
+        ("example.com", "/callback"),
+        ("localhost", "callback"),
+        ("localhost", "//example.com/callback"),
+        ("localhost", "/callback?next=evil"),
+    ],
+)
+def test_run_u2m_flow_rejects_unsafe_redirect_targets(redirect_host, redirect_path):
+    with pytest.raises(ValueError, match="redirect"):
+        run_u2m_authorization_code_flow(
+            client_id="cid",
+            authorization_endpoint="https://example.com/authorize",
+            scope=None,
+            redirect_host=redirect_host,
+            redirect_path=redirect_path,
+            open_browser=False,
+            timeout_seconds=0,
+            echo=lambda *_args, **_kw: None,
+        )
+
+
 def test_run_u2m_flow_rejects_state_mismatch(monkeypatch):
     """A state value that does not match must be reported as a CSRF-style error."""
     port = _pick_free_port()
@@ -245,9 +308,9 @@ def _run_flow_capturing_auth_url(monkeypatch, **kwargs):
     return result, captured["qs"]
 
 
-def test_run_u2m_without_pkce_omits_challenge_and_returns_empty_verifier(monkeypatch):
+def test_run_u2m_without_pkce_omits_challenge_and_returns_verifier(monkeypatch):
     (_, verifier, _), qs = _run_flow_capturing_auth_url(monkeypatch, use_pkce=False)
-    assert verifier == ""
+    assert 43 <= len(verifier) <= 128
     assert "code_challenge" not in qs
     assert "code_challenge_method" not in qs
 

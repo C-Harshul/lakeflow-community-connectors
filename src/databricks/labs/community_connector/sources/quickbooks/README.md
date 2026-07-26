@@ -25,6 +25,8 @@ Validation available:
 - Generated single-file Spark Python data source with a tested
   `register(spark, "quickbooks")` entry point.
 - Live Intuit sandbox OAuth refresh and Customer snapshot validation.
+- Serverless Databricks M1 Customer pipeline with exact source/destination ID
+  parity.
 - `pipeline_spec.customer.yaml` for the M1 Customer smoke pipeline.
 - `pipeline_spec.yaml` for the M2 six-table snapshot pipeline.
 
@@ -34,8 +36,9 @@ Not implemented or externally validated yet:
 - QuickBooks CDC time-window subdivision.
 - `cdc_with_deletes` and deletion reads.
 - Versioned incremental offsets.
-- Databricks workspace pipeline validation (the current development PAT must
-  be renewed).
+- Production-ready Unity Catalog managed OAuth. The M1 pipeline used a
+  short-lived access-token connection because Databricks' server-side U2M
+  exchange with Intuit currently returns `invalid_client`.
 
 ## Connection parameters
 
