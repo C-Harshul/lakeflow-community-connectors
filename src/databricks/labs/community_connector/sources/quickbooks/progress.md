@@ -4,6 +4,24 @@ Keep entries most-recent-first. Record reproducible evidence and blockers, but
 never credentials, access tokens, refresh tokens, client secrets, or customer
 payloads.
 
+## 2026-07-26 — deployment Step 1 complete
+
+- Generated the deployable single-file Spark Python data source at
+  `_generated_quickbooks_python_source.py`.
+- Regenerated it twice with the same SHA-256 digest:
+  `1ace9555554867f3946d6c8031c4695221a3c662d2f0b193a8fd01871c9bd985`.
+- Verified that `register(spark, "quickbooks")` registers `LakeflowSource`,
+  constructs `QuickBooksLakeflowConnect` from Spark options, discovers all six
+  tables, and returns the Customer schema.
+- Added a regression test for the generated module's legacy Spark registration
+  path.
+- The QuickBooks and Spark registry suite passes 36 tests with 2 expected
+  skips; scoped Ruff, formatting, compilation, and diff checks pass.
+- Rebuilt and inspected the connector wheel; it contains the generated Python
+  source, connector specification, and both M1/M2 pipeline specifications.
+- Live M1 acceptance still requires renewed QuickBooks sandbox authorization
+  and valid Databricks workspace authentication.
+
 ## 2026-07-26 — M2 offline implementation complete; live acceptance blocked
 
 - Added M1 Customer-only and M2 six-table pipeline specifications; both pass

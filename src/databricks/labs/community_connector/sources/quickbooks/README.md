@@ -22,6 +22,8 @@ Validation available:
   response validation, and typed normalization.
 - Source simulator corpus and the repository's generic connector contract
   suite for all six tables.
+- Generated single-file Spark Python data source with a tested
+  `register(spark, "quickbooks")` entry point.
 - `pipeline_spec.customer.yaml` for the M1 Customer smoke pipeline.
 - `pipeline_spec.yaml` for the M2 six-table snapshot pipeline.
 
