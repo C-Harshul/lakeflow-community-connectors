@@ -24,13 +24,12 @@ Validation available:
   suite for all six tables.
 - Generated single-file Spark Python data source with a tested
   `register(spark, "quickbooks")` entry point.
+- Live Intuit sandbox OAuth refresh and Customer snapshot validation.
 - `pipeline_spec.customer.yaml` for the M1 Customer smoke pipeline.
 - `pipeline_spec.yaml` for the M2 six-table snapshot pipeline.
 
 Not implemented or externally validated yet:
 
-- Live Intuit sandbox validation (the current development authorization must
-  be renewed).
 - Snapshot-to-CDC handoff.
 - QuickBooks CDC time-window subdivision.
 - `cdc_with_deletes` and deletion reads.

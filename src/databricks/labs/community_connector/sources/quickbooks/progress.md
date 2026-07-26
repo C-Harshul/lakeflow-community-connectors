@@ -4,6 +4,18 @@ Keep entries most-recent-first. Record reproducible evidence and blockers, but
 never credentials, access tokens, refresh tokens, client secrets, or customer
 payloads.
 
+## 2026-07-26 — M1 live QuickBooks source validated
+
+- Completed a new Intuit OAuth authorization against a QuickBooks sandbox.
+- Exchanged the saved refresh token for a short-lived access token without
+  persisting or logging the access token.
+- Ran `QuickBooksLakeflowConnect` against the live Customer query endpoint.
+- The complete Customer snapshot returned 29 records with unique IDs and a
+  non-empty lossless `raw_json` payload for every record.
+- The remaining M1 work is Databricks-side: create the Unity Catalog COMMUNITY
+  connection, deploy the Customer pipeline, and compare the resulting
+  destination IDs/count against this source snapshot.
+
 ## 2026-07-26 — deployment Step 1 complete
 
 - Generated the deployable single-file Spark Python data source at
@@ -89,8 +101,8 @@ payloads.
 
 ### M1 — Customer end to end
 
-- [ ] Valid QuickBooks sandbox authorization and realm proven
-- [ ] Customer source snapshot succeeds
+- [x] Valid QuickBooks sandbox authorization and realm proven
+- [x] Customer source snapshot succeeds
 - [ ] Customer destination table created in Databricks
 - [ ] QuickBooks IDs and Databricks IDs/counts match
 
