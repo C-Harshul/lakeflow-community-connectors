@@ -27,6 +27,8 @@ Validation available:
 - Live Intuit sandbox OAuth refresh and Customer snapshot validation.
 - Serverless Databricks M1 Customer pipeline with exact source/destination ID
   parity.
+- Serverless refresh-then-ingest workflow that persists Intuit refresh-token
+  rotation in a Databricks secret scope before every pipeline run.
 - `pipeline_spec.customer.yaml` for the M1 Customer smoke pipeline.
 - `pipeline_spec.yaml` for the M2 six-table snapshot pipeline.
 
@@ -36,9 +38,10 @@ Not implemented or externally validated yet:
 - QuickBooks CDC time-window subdivision.
 - `cdc_with_deletes` and deletion reads.
 - Versioned incremental offsets.
-- Production-ready Unity Catalog managed OAuth. The M1 pipeline used a
-  short-lived access-token connection because Databricks' server-side U2M
-  exchange with Intuit currently returns `invalid_client`.
+- Direct Unity Catalog managed U2M. Databricks' server-side U2M exchange with
+  Intuit currently returns `invalid_client`; the validated workflow in
+  `quickbooks_token_refresh.py` provides automatic rotation without exposing
+  long-lived credentials to the connector.
 
 ## Connection parameters
 
@@ -50,9 +53,16 @@ Not implemented or externally validated yet:
 | `environment` | no | `production` (default) or `sandbox` |
 | `minor_version` | no | Accounting API minor version; defaults to `75` |
 
-The Unity Catalog connection owns the OAuth authorization and token refresh
-flow. The connector consumes the injected `access_token` and does not store
-refresh tokens.
+The Databricks control plane owns the OAuth authorization and token refresh
+boundary. The connector consumes the injected `access_token` and never receives
+client credentials or refresh tokens.
+
+Until direct Unity Catalog U2M interoperates with Intuit, run ingestion through
+the refresh-then-ingest Lakeflow Job. Its first task reads OAuth credentials
+from a Databricks secret scope, requests a fresh access token, persists
+Intuit's rotated refresh token, and updates the static COMMUNITY connection.
+The pipeline task runs only after that refresh succeeds. Do not schedule the
+pipeline directly when using this mode.
 
 ## Table options
 

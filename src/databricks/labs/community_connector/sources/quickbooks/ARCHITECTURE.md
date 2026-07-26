@@ -11,10 +11,23 @@ One Unity Catalog COMMUNITY connection represents one Intuit authorization and
 one QuickBooks `realm_id`. The connector never multiplexes credentials or
 companies inside one connection.
 
-### Unity Catalog owns OAuth
+### OAuth stays outside the connector
 
 The connector consumes an injected access token. It does not persist or rotate
 refresh tokens and does not implement a browser callback.
+
+The preferred production path is Unity Catalog managed U2M. The validated
+fallback for Intuit interoperability is a two-task Databricks workflow:
+
+1. A serverless notebook reads the OAuth client and refresh token from a
+   Databricks secret scope.
+2. It exchanges the refresh token using HTTP Basic authentication.
+3. It persists Intuit's newly rotated refresh token before updating the static
+   COMMUNITY connection with the short-lived access token.
+4. The ingestion pipeline runs only if the refresh task succeeds.
+
+This preserves the security boundary: Spark executors receive only an access
+token, and logs never contain OAuth credentials.
 
 ### At-least-once source delivery
 

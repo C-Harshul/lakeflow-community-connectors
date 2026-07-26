@@ -4,6 +4,28 @@ Keep entries most-recent-first. Record reproducible evidence and blockers, but
 never credentials, access tokens, refresh tokens, client secrets, or customer
 payloads.
 
+## 2026-07-26 — automatic token refresh validated
+
+- Added `quickbooks_token_refresh.py` with isolated, unit-tested Intuit token
+  exchange and Unity Catalog connection-option construction.
+- Created Databricks secret scope `quickbooks_connector`; it stores the OAuth
+  client credentials, realm, and latest rotating refresh token.
+- Uploaded the refresh notebook without embedding any credential values.
+- Created the serverless two-task Lakeflow Job
+  `quickbooks_customer_m1_with_token_refresh` (`335040981837328`).
+- Job run `799136489074724` completed successfully:
+  `refresh_quickbooks_token` rotated and persisted the refresh token, updated
+  `quickbooks_sandbox` with a fresh access token, and
+  `run_quickbooks_pipeline` then completed successfully.
+- Direct COMMUNITY refresh-token authentication is not supported by the
+  backend; accepted flow values are `m2m`, `u2m`, and `u2m_per_user`.
+- Direct managed U2M remains incompatible: Intuit accepts `header_only` and
+  rejects `header_and_body`, while Databricks' `header_only` exchange returned
+  `invalid_client`.
+- Operational rule: trigger or schedule the Lakeflow Job, not the pipeline
+  directly. No recurring schedule was created because an ingestion cadence
+  has not yet been selected.
+
 ## 2026-07-26 — M1 Databricks pipeline validated end to end
 
 - Authenticated Databricks profile `numina-quickbooks` against workspace
