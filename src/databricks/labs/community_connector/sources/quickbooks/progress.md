@@ -4,6 +4,35 @@ Keep entries most-recent-first. Record reproducible evidence and blockers, but
 never credentials, access tokens, refresh tokens, client secrets, or customer
 payloads.
 
+## 2026-07-26 — M2 six-table live acceptance complete
+
+- Created isolated schema `workspace.quickbooks_m2`.
+- Deployed serverless pipeline `quickbooks_six_table_m2`
+  (`cade4c01-a920-4765-b372-f19b16a35cfe`) without changing the working M1
+  pipeline.
+- Created refresh-first Job `quickbooks_six_table_m2_with_token_refresh`
+  (`983563599046304`).
+- Workflow run `469908743657600` completed successfully: token refresh
+  succeeded before the six-table pipeline.
+- Destination integrity validation found zero duplicate, null, or blank IDs
+  and zero missing `raw_json` payloads:
+  - customers: 29 rows
+  - vendors: 71 rows
+  - accounts: 90 rows
+  - items: 23 rows
+  - invoices: 42 rows
+  - bills: 85 rows
+- Credential-free aggregate parity Job
+  `quickbooks_m2_source_destination_validation` (`347443756006694`) reread
+  each live QuickBooks entity without logging IDs.
+- Parity run `457102424567779` proved exact source/destination ID-set equality
+  for all six tables: zero source-only and zero destination-only IDs.
+- A general serverless notebook could not import the preview Spark Python
+  streaming data-source API used by the connector. The pipeline runtime
+  supports it; the parity notebook therefore used the QuickBooks REST API
+  directly and persisted Intuit's rotated refresh token before validation.
+- The temporary SQL warehouse was stopped after validation.
+
 ## 2026-07-26 — rotated Intuit client secret validated
 
 - Updated only `quickbooks_connector/client_secret` from the ignored local
@@ -171,6 +200,6 @@ payloads.
 - [x] items implementation and simulator coverage
 - [x] invoices implementation and simulator coverage
 - [x] bills implementation and simulator coverage
-- [ ] Live-source parity validation
-- [ ] No duplicate primary keys in any destination table
-- [ ] Source/destination ID parity for every table
+- [x] Live-source parity validation
+- [x] No duplicate primary keys in any destination table
+- [x] Source/destination ID parity for every table

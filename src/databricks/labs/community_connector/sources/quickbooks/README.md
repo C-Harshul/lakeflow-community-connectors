@@ -27,6 +27,8 @@ Validation available:
 - Live Intuit sandbox OAuth refresh and Customer snapshot validation.
 - Serverless Databricks M1 Customer pipeline with exact source/destination ID
   parity.
+- Serverless Databricks M2 pipeline with exact live source/destination ID
+  parity for customers, vendors, accounts, items, invoices, and bills.
 - Serverless refresh-then-ingest workflow that persists Intuit refresh-token
   rotation in a Databricks secret scope before every pipeline run.
 - `pipeline_spec.customer.yaml` for the M1 Customer smoke pipeline.
