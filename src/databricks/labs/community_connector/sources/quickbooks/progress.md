@@ -4,6 +4,13 @@ Keep entries most-recent-first. Record reproducible evidence and blockers, but
 never credentials, access tokens, refresh tokens, client secrets, or customer
 payloads.
 
+## 2026-07-26 — M3–M6 roadmap formalized
+
+- Defined M3 for checkpointed incremental inserts and updates.
+- Defined M4 for deletion and inactive-record semantics.
+- Added M5 as a required multi-tenant isolation milestone before production.
+- Defined M6 for evidence-driven partitioned ingestion and performance work.
+
 ## 2026-07-26 — M2 six-table live acceptance complete
 
 - Created isolated schema `workspace.quickbooks_m2`.
@@ -203,3 +210,44 @@ payloads.
 - [x] Live-source parity validation
 - [x] No duplicate primary keys in any destination table
 - [x] Source/destination ID parity for every table
+
+### M3 — checkpointed incremental updates
+
+- [ ] Define and version the `LastUpdatedTime` plus ID tie-breaker offset
+- [ ] Implement a lossless snapshot-to-incremental handoff for Customers
+- [ ] Prove same-timestamp records are not skipped
+- [ ] Prove replay after failure is idempotent and does not advance the
+      checkpoint prematurely
+- [ ] Validate Customer inserts and updates against live QuickBooks
+- [ ] Extend the proven incremental pattern to the other five tables
+
+### M4 — deletions and inactive records
+
+- [ ] Define deletion versus inactivation semantics for every entity
+- [ ] Implement and test `cdc_with_deletes`
+- [ ] Emit stable tombstones containing the required primary key and cursor
+- [ ] Prove deletion replay is idempotent
+- [ ] Validate live deletion and inactivation behavior in Databricks
+
+### M5 — multi-tenant isolation
+
+- [ ] Enforce one QuickBooks `realm_id` per Unity Catalog connection
+- [ ] Provision separate credential and refresh-token chains per tenant
+- [ ] Isolate destination schemas or use `realm_id` in every shared primary key
+- [ ] Isolate checkpoints by realm and table
+- [ ] Prove identical QuickBooks IDs in two realms cannot collide
+- [ ] Prove refreshing or revoking one tenant cannot affect another tenant
+- [ ] Prove one tenant's ingestion failure does not block another tenant
+- [ ] Validate Unity Catalog, secret-scope, Job, schema, and table permissions
+      across tenants
+- [ ] Document repeatable tenant onboarding, revocation, and data-retention
+      procedures
+
+### M6 — partitioned ingestion and performance
+
+- [ ] Establish production-scale volume and latency targets
+- [ ] Measure sequential CDC performance and QuickBooks rate-limit behavior
+- [ ] Define deterministic, non-overlapping time-window partitions
+- [ ] Implement shared concurrency and rate-limit controls
+- [ ] Prove partition retries cannot miss or duplicate changes
+- [ ] Enable partitioned Spark ingestion only when measurements show a benefit
