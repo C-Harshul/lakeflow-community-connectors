@@ -4,6 +4,16 @@ Keep entries most-recent-first. Record reproducible evidence and blockers, but
 never credentials, access tokens, refresh tokens, client secrets, or customer
 payloads.
 
+## 2026-07-26 — rotated Intuit client secret validated
+
+- Updated only `quickbooks_connector/client_secret` from the ignored local
+  development configuration; no credential value was logged or committed.
+- Serverless workflow run `119992087771059` completed successfully.
+- `refresh_quickbooks_token` succeeded with the rotated client secret and
+  persisted the next refresh token.
+- The dependent `run_quickbooks_pipeline` task then completed successfully,
+  proving that refresh and Customer ingestion still work end to end.
+
 ## 2026-07-26 — automatic token refresh validated
 
 - Added `quickbooks_token_refresh.py` with isolated, unit-tested Intuit token
