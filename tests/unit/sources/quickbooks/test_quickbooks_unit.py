@@ -1,0 +1,209 @@
+"""Focused failure-mode and normalization tests for QuickBooks Online."""
+
+from __future__ import annotations
+
+from datetime import datetime
+from decimal import Decimal
+from unittest.mock import Mock
+
+import pytest
+import requests
+
+from databricks.labs.community_connector.sources.quickbooks.quickbooks import (
+    QuickBooksApiClient,
+    QuickBooksLakeflowConnect,
+    _normalize_entity,
+    _retry_after_seconds,
+)
+
+
+def _options(**overrides: str) -> dict[str, str]:
+    return {
+        "access_token": "token",
+        "realm_id": "realm",
+        "environment": "sandbox",
+        **overrides,
+    }
+
+
+def _response(status: int, payload: object | None = None, **headers: str) -> Mock:
+    response = Mock(spec=requests.Response)
+    response.status_code = status
+    response.headers = headers
+    response.json.return_value = payload
+    if status >= 400:
+        response.raise_for_status.side_effect = requests.HTTPError(str(status))
+    else:
+        response.raise_for_status.return_value = None
+    return response
+
+
+@pytest.mark.parametrize("missing", ["access_token", "realm_id"])
+def test_required_connection_values(missing: str) -> None:
+    options = _options()
+    options[missing] = " "
+    with pytest.raises(ValueError, match=missing):
+        QuickBooksLakeflowConnect(options)
+
+
+def test_invalid_environment() -> None:
+    with pytest.raises(ValueError, match="environment"):
+        QuickBooksLakeflowConnect(_options(environment="staging"))
+
+
+def test_table_discovery_and_specialized_schemas() -> None:
+    connector = QuickBooksLakeflowConnect(_options())
+    assert connector.list_tables() == [
+        "customers",
+        "vendors",
+        "accounts",
+        "items",
+        "invoices",
+        "bills",
+    ]
+    assert "primary_email" in connector.get_table_schema("customers", {}).fieldNames()
+    assert "account_type" in connector.get_table_schema("accounts", {}).fieldNames()
+    assert "quantity_on_hand" in connector.get_table_schema("items", {}).fieldNames()
+    assert "customer_ref" in connector.get_table_schema("invoices", {}).fieldNames()
+    assert "vendor_ref" in connector.get_table_schema("bills", {}).fieldNames()
+
+
+def test_pagination_requests_empty_page_after_exact_full_page(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    responses = [
+        _response(200, {"QueryResponse": {"Customer": [{"Id": "1"}, {"Id": "2"}]}}),
+        _response(200, {"QueryResponse": {"Customer": []}}),
+    ]
+    get = Mock(side_effect=responses)
+    monkeypatch.setattr(requests, "get", get)
+    client = QuickBooksApiClient(
+        access_token="token",
+        realm_id="realm",
+        environment="sandbox",
+        minor_version=75,
+    )
+
+    assert [row["Id"] for row in client.iter_entity("Customer", page_size=2)] == ["1", "2"]
+    assert get.call_count == 2
+    assert "STARTPOSITION 1 MAXRESULTS 2" in get.call_args_list[0].kwargs["params"]["query"]
+    assert "STARTPOSITION 3 MAXRESULTS 2" in get.call_args_list[1].kwargs["params"]["query"]
+
+
+@pytest.mark.parametrize("status", [401, 403])
+def test_auth_failures_are_not_retried(monkeypatch: pytest.MonkeyPatch, status: int) -> None:
+    get = Mock(return_value=_response(status))
+    monkeypatch.setattr(requests, "get", get)
+    client = QuickBooksApiClient(
+        access_token="token",
+        realm_id="realm",
+        environment="production",
+        minor_version=75,
+    )
+    with pytest.raises(PermissionError, match="authentication failed"):
+        list(client.iter_entity("Customer", page_size=10))
+    assert get.call_count == 1
+
+
+def test_retry_after_is_honored(monkeypatch: pytest.MonkeyPatch) -> None:
+    get = Mock(
+        side_effect=[
+            _response(429, None, **{"Retry-After": "2"}),
+            _response(200, {"QueryResponse": {"Customer": []}}),
+        ]
+    )
+    sleep = Mock()
+    monkeypatch.setattr(requests, "get", get)
+    monkeypatch.setattr("time.sleep", sleep)
+    client = QuickBooksApiClient(
+        access_token="token",
+        realm_id="realm",
+        environment="sandbox",
+        minor_version=75,
+    )
+    assert list(client.iter_entity("Customer", page_size=10)) == []
+    sleep.assert_called_once_with(2.0)
+
+
+def test_transient_failure_exhaustion(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(requests, "get", Mock(return_value=_response(503)))
+    monkeypatch.setattr("time.sleep", Mock())
+    client = QuickBooksApiClient(
+        access_token="token",
+        realm_id="realm",
+        environment="sandbox",
+        minor_version=75,
+        max_retries=2,
+    )
+    with pytest.raises(RuntimeError, match="retry exhaustion"):
+        list(client.iter_entity("Customer", page_size=10))
+
+
+def test_network_failure_exhaustion(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(requests, "get", Mock(side_effect=requests.ConnectionError("offline")))
+    monkeypatch.setattr("time.sleep", Mock())
+    client = QuickBooksApiClient(
+        access_token="token",
+        realm_id="realm",
+        environment="sandbox",
+        minor_version=75,
+        max_retries=2,
+    )
+    with pytest.raises(RuntimeError, match="retry exhaustion"):
+        list(client.iter_entity("Customer", page_size=10))
+
+
+def test_invalid_json(monkeypatch: pytest.MonkeyPatch) -> None:
+    response = _response(200)
+    response.json.side_effect = ValueError("bad json")
+    monkeypatch.setattr(requests, "get", Mock(return_value=response))
+    client = QuickBooksApiClient(
+        access_token="token",
+        realm_id="realm",
+        environment="sandbox",
+        minor_version=75,
+    )
+    with pytest.raises(RuntimeError, match="invalid JSON"):
+        list(client.iter_entity("Customer", page_size=10))
+
+
+def test_customer_decimal_timestamp_and_raw_payload() -> None:
+    record = _normalize_entity(
+        "customers",
+        {
+            "Id": "1",
+            "Balance": "12.340",
+            "Active": False,
+            "DisplayName": "Example",
+            "MetaData": {
+                "CreateTime": "2026-07-20T10:00:00Z",
+                "LastUpdatedTime": "2026-07-21T11:30:00+00:00",
+            },
+        },
+    )
+    assert record["balance"] == Decimal("12.340")
+    assert record["created_at"] == datetime.fromisoformat("2026-07-20T10:00:00+00:00")
+    assert record["active"] is False
+    assert '"Id":"1"' in record["raw_json"]
+
+
+def test_transaction_dates_and_lines() -> None:
+    record = _normalize_entity(
+        "invoices",
+        {
+            "Id": "40",
+            "TxnDate": "2026-07-01",
+            "DueDate": "2026-07-31",
+            "TotalAmt": 10.25,
+            "Line": [{"Id": "1"}],
+        },
+    )
+    assert record["txn_date"] == "2026-07-01"
+    assert record["due_date"] == "2026-07-31"
+    assert record["total_amount"] == Decimal("10.25")
+    assert record["line_json"] == '[{"Id":"1"}]'
+
+
+@pytest.mark.parametrize("value,expected", [(None, None), ("", None), ("3", 3.0), ("0", 0.0)])
+def test_retry_after_seconds(value: str | None, expected: float | None) -> None:
+    assert _retry_after_seconds(value) == expected
