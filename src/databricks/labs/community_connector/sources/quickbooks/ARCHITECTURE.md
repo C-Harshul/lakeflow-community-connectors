@@ -45,38 +45,61 @@ The first version does not partition positional QuickBooks query pages across
 Spark executors. Parallel page reads can drift while the source changes and can
 amplify API throttling.
 
-## Required CDC design before enabling incremental metadata
+## Implemented M3 Customer incremental design
 
-The final per-table offset must be versioned and contain all restart state.
-A proposed shape is:
+The Customer offset is versioned and contains the committed source watermark:
 
 ```json
 {
   "version": 1,
-  "phase": "cdc",
-  "committed_through": "2026-07-25T10:00:00Z"
+  "updated_through": "2026-07-25T10:00:00Z"
 }
 ```
 
-During bootstrap:
+Each connector instance freezes its initialization timestamp. That timestamp is
+the upper bound for the whole AvailableNow run, allowing it to terminate even
+when QuickBooks is being updated concurrently.
+
+During Customer bootstrap:
 
 1. Capture the CDC boundary before the first snapshot request.
-2. Complete or resume the full positional snapshot.
-3. Begin CDC from the captured boundary.
-4. Accept replayed rows and merge by QuickBooks `Id`.
+2. Emit the complete positional snapshot.
+3. Commit the captured boundary only if Spark successfully commits the batch.
+4. On the next trigger, replay the configured overlap below that boundary so
+   changes racing the snapshot are included.
 
-During CDC:
+During Customer incremental reads:
 
-1. Read a bounded time window.
-2. Subdivide any window that reaches the 1,000-object response limit.
-3. Emit updates and deletion tombstones separately.
-4. Advance `committed_through` only after the complete window is emitted.
-5. Replaying the same start offset must produce equivalent records.
+1. Query an inclusive `MetaData.LastUpdatedTime` lower and upper bound.
+2. Default to a 60-second lower-bound overlap and a one-day maximum window.
+3. Paginate the entire bounded query with `STARTPOSITION` / `MAXRESULTS`.
+4. Return a new `updated_through` only for the bounded upper timestamp.
+5. Let Spark commit that end offset only after the batch succeeds.
+6. Merge replayed records by QuickBooks `Id`, sequencing by
+   `last_updated_at`, so replay is idempotent.
+
+An ID tie-breaker is not used. QuickBooks query filters permit equality and
+`IN` for `Id`, but not range comparisons, and the query language does not
+support `OR`. A timestamp overlap therefore protects equal-timestamp
+boundaries without relying on an unsupported `(timestamp, Id)` range cursor.
+
+Customer metadata is `cdc`. Vendors, accounts, items, invoices, and bills
+remain `snapshot` until the Customer pattern passes live acceptance.
+
+## Required before deletion CDC
+
+The QuickBooks CDC endpoint is still required for reliable deletion
+tombstones. Before enabling `cdc_with_deletes`:
+
+1. Subdivide any time window that reaches the 1,000-object response limit.
+2. Emit updates and deletion tombstones separately.
+3. Define recovery when a checkpoint is older than the 30-day CDC horizon.
+4. Prove replayed deletes are idempotent.
 
 ## Open decisions
 
 - Confirm how Databricks community OAuth surfaces Intuit's callback `realmId`.
-- Choose an overlap duration for timestamp boundary protection.
+- Re-evaluate the default overlap duration using production latency evidence.
 - Decide whether `raw_json` should become `VARIANT` before public release.
 - Decide which QuickBooks entities require specialized typed schemas.
 - Define recovery when a checkpoint is older than the 30-day CDC horizon.

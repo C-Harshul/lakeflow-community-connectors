@@ -45,3 +45,19 @@ class TestQuickBooksConnector(LakeflowConnectTests):
             assert any(record["active"] is False for record in records), (
                 f"{table} did not retain an inactive entity"
             )
+
+    def test_customer_incremental_window_includes_cursor_timestamp(self) -> None:
+        records, _ = self.connector.read_table(
+            "customers",
+            {
+                "version": 1,
+                "updated_through": "2026-07-21T09:30:00Z",
+            },
+            {
+                **self._opts("customers"),
+                "incremental_overlap_seconds": "0",
+                "max_incremental_window_seconds": "604800",
+            },
+        )
+
+        assert [record["id"] for record in records] == ["2"]

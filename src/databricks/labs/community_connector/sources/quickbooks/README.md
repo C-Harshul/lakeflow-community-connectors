@@ -14,7 +14,10 @@ Implemented:
 - Stable typed core fields plus a lossless `raw_json` payload.
 - Complete `STARTPOSITION` / `MAXRESULTS` snapshot pagination.
 - Bounded retries for throttling, transient HTTP failures, and network errors.
-- Snapshot ingestion metadata.
+- Checkpointed Customer inserts and updates using bounded
+  `MetaData.LastUpdatedTime` queries.
+- Versioned Customer offsets, snapshot-to-incremental handoff, and replay-safe
+  timestamp overlap.
 
 Validation available:
 
@@ -29,17 +32,19 @@ Validation available:
   parity.
 - Serverless Databricks M2 pipeline with exact live source/destination ID
   parity for customers, vendors, accounts, items, invoices, and bills.
+- Serverless Databricks M3 Customer CDC pipeline with successful bootstrap,
+  no-change replay, synthetic insert, and sparse-update acceptance.
 - Serverless refresh-then-ingest workflow that persists Intuit refresh-token
   rotation in a Databricks secret scope before every pipeline run.
 - `pipeline_spec.customer.yaml` for the M1 Customer smoke pipeline.
 - `pipeline_spec.yaml` for the M2 six-table snapshot pipeline.
+- `pipeline_spec.customer_cdc.yaml` for the isolated M3 Customer CDC pilot.
 
 Not implemented or externally validated yet:
 
-- Snapshot-to-CDC handoff.
-- QuickBooks CDC time-window subdivision.
+- Incremental updates for vendors, accounts, items, invoices, and bills.
+- QuickBooks CDC endpoint time-window subdivision.
 - `cdc_with_deletes` and deletion reads.
-- Versioned incremental offsets.
 - Direct Unity Catalog managed U2M. Databricks' server-side U2M exchange with
   Intuit currently returns `invalid_client`; the validated workflow in
   `quickbooks_token_refresh.py` provides automatic rotation without exposing
@@ -71,11 +76,14 @@ pipeline directly when using this mode.
 | Option | Default | Description |
 |---|---:|---|
 | `page_size` | `1000` | QuickBooks query page size, from 1 through 1000 |
+| `incremental_overlap_seconds` | `60` | Customer lower-bound replay overlap, from 0 through 3600 seconds |
+| `max_incremental_window_seconds` | `86400` | Maximum Customer checkpoint window, from 60 through 604800 seconds |
 
 ## Development
 
-The scaffold is intentionally snapshot-only. Do not change table metadata to
-`cdc` or `cdc_with_deletes` until the checkpoint and delete invariants in
+Customers are an M3 `cdc` pilot. Their initial read is a complete snapshot,
+followed by bounded update queries. The other five tables remain snapshots.
+Do not enable `cdc_with_deletes` until the delete invariants in
 `ARCHITECTURE.md` are implemented and covered by simulator and live tests.
 
 Run the offline connector suite from the repository root:

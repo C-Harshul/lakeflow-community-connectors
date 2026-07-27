@@ -31,28 +31,45 @@ SELECT * FROM Customer STARTPOSITION 1 MAXRESULTS 1000
 
 The maximum response size is 1,000 records.
 
+Customer incremental queries use inclusive time bounds:
+
+```sql
+SELECT * FROM Customer
+WHERE MetaData.LastUpdatedTime >= '2026-07-25T09:59:00Z'
+  AND MetaData.LastUpdatedTime <= '2026-07-26T10:00:00Z'
+STARTPOSITION 1 MAXRESULTS 1000
+```
+
+QuickBooks supports `AND` but not `OR`. Its `Id` filter supports equality and
+`IN`, not ordering comparisons. The M3 cursor therefore uses a timestamp
+watermark with an overlap rather than an unsupported `(timestamp, Id)` range
+tie-breaker.
+
 ## Initial object set
 
 | Lakeflow table | QuickBooks entity | Primary key | Initial mode |
 |---|---|---|---|
-| customers | Customer | Id | snapshot |
+| customers | Customer | Id | cdc (inserts and updates) |
 | vendors | Vendor | Id | snapshot |
 | accounts | Account | Id | snapshot |
 | items | Item | Id | snapshot |
 | invoices | Invoice | Id | snapshot |
 | bills | Bill | Id | snapshot |
 
-## Incremental design target
+## Incremental status
+
+Customer inserts and updates are implemented with a versioned
+`updated_through` offset, a frozen per-run upper bound, bounded update windows,
+and replay overlap. The initial Customer batch is a complete snapshot.
+
+The QuickBooks CDC endpoint remains the design target for deletions:
 
 QuickBooks CDC returns changed entities and deletion tombstones, but:
 
 - only the previous 30 days can be queried;
 - one response can contain at most 1,000 objects;
 - the connector must subdivide saturated time windows;
-- the bootstrap CDC boundary must be captured before the full snapshot;
-- incremental reads must be replay-safe.
-
-These behaviors are not implemented in the initial scaffold.
+- deletion reads must be replay-safe.
 
 ## Source references
 

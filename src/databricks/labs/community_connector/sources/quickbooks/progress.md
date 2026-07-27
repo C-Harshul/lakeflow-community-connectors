@@ -4,6 +4,60 @@ Keep entries most-recent-first. Record reproducible evidence and blockers, but
 never credentials, access tokens, refresh tokens, client secrets, or customer
 payloads.
 
+## 2026-07-27 — M3 Customer live acceptance complete
+
+- Created isolated schema `workspace.quickbooks_m3`.
+- Deployed serverless pipeline `quickbooks_customer_m3_cdc`
+  (`82e11b44-07fa-496c-a6ef-e941b4b28097`) with packages isolated in
+  `workspace.quickbooks_m3.community_connector`.
+- Created refresh-first Job `quickbooks_customer_m3_cdc_with_token_refresh`
+  (`412714813643415`); no M1 or M2 resource was modified.
+- Bootstrap run `1123094026072585` completed successfully and materialized 29
+  rows with 29 distinct IDs, zero invalid IDs, and zero missing `raw_json`
+  payloads.
+- No-change run `53270565059834` completed successfully, proving the committed
+  checkpoint can be reused without a reset.
+- Created one clearly named synthetic Customer in the QuickBooks sandbox.
+  Incremental pipeline update `7a176cfc-9342-42bc-b456-6b590a58191e`
+  completed and produced 30 rows, 30 distinct IDs, and exactly one synthetic
+  insert.
+- Applied a sparse update only to that synthetic Customer using its latest
+  QuickBooks `SyncToken`. Incremental pipeline update
+  `39252e5c-1359-4ca3-916e-7cab74b12b6b` completed.
+- Final aggregate validation found 30 rows, 30 distinct IDs, exactly one
+  updated synthetic row, zero stale versions of its prior display name, and
+  zero invalid IDs. This proves the SCD Type 1 merge updated the existing row
+  in place.
+- Removed the temporary synthetic-ID secret and stopped the temporary SQL
+  warehouse after validation. The synthetic sandbox Customer remains as an
+  auditable M3 fixture.
+- M3 Customer inserts and updates are accepted. Extending the pattern to the
+  other five tables remains the next M3 scope.
+
+## 2026-07-26 — M3 Customer incremental implementation complete offline
+
+- Customers now advertise `cdc` ingestion with `last_updated_at` as the
+  sequence cursor; the other five tables remain snapshot-only.
+- Added versioned offsets shaped as
+  `{"version": 1, "updated_through": "<UTC timestamp>"}`.
+- The connector freezes an initialization-time upper bound so an AvailableNow
+  run converges instead of chasing concurrent source writes.
+- The first Customer read emits a complete snapshot and checkpoints the frozen
+  boundary. Later reads query bounded `MetaData.LastUpdatedTime` windows.
+- Added a configurable 60-second lower-bound overlap. This intentionally
+  replays boundary records and relies on SCD Type 1 merges by QuickBooks `Id`
+  for idempotency.
+- Rejected an ID range tie-breaker after verifying that QuickBooks query
+  filters do not support ordering comparisons on `Id` and do not support
+  `OR`. Timestamp overlap is the lossless boundary strategy for M3.
+- Added `pipeline_spec.customer_cdc.yaml` for an isolated Customer CDC pilot
+  with `last_updated_at` sequencing.
+- Simulator and unit coverage proves same-timestamp inclusion, bounded-window
+  pagination, deterministic replay, failure replay from the unchanged start
+  offset, malformed offset rejection, and missing cursor rejection.
+- Offline suite result: 47 passed and 2 expected skips. Live sandbox
+  insert/update validation and isolated Databricks deployment remain next.
+
 ## 2026-07-26 — M3–M6 roadmap formalized
 
 - Defined M3 for checkpointed incremental inserts and updates.
@@ -213,12 +267,13 @@ payloads.
 
 ### M3 — checkpointed incremental updates
 
-- [ ] Define and version the `LastUpdatedTime` plus ID tie-breaker offset
-- [ ] Implement a lossless snapshot-to-incremental handoff for Customers
-- [ ] Prove same-timestamp records are not skipped
-- [ ] Prove replay after failure is idempotent and does not advance the
+- [x] Define and version the `LastUpdatedTime` watermark offset
+- [x] Document why QuickBooks query constraints rule out an ID range tie-breaker
+- [x] Implement a lossless snapshot-to-incremental handoff for Customers
+- [x] Prove same-timestamp records are not skipped
+- [x] Prove replay after failure is idempotent and does not advance the
       checkpoint prematurely
-- [ ] Validate Customer inserts and updates against live QuickBooks
+- [x] Validate Customer inserts and updates against live QuickBooks
 - [ ] Extend the proven incremental pattern to the other five tables
 
 ### M4 — deletions and inactive records

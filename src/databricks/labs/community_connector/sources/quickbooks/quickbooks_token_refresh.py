@@ -62,7 +62,11 @@ def build_connection_options(
         "realm_id": realm_id,
         "environment": environment,
         "minor_version": minor_version,
-        "externalOptionsAllowList": ("isDeleteFlow,page_size,tableConfigs,tableName,tableNameList"),
+        "externalOptionsAllowList": (
+            "incremental_overlap_seconds,isDeleteFlow,"
+            "max_incremental_window_seconds,page_size,"
+            "tableConfigs,tableName,tableNameList"
+        ),
         "sourceName": "quickbooks",
     }
 

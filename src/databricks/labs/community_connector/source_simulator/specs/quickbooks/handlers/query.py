@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import datetime
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
@@ -18,6 +19,8 @@ from databricks.labs.community_connector.source_simulator.interceptor import (
 
 _QUERY_RE = re.compile(
     r"^SELECT \* FROM (?P<entity>Customer|Vendor|Account|Item|Invoice|Bill) "
+    r"(?:WHERE MetaData\.LastUpdatedTime >= '(?P<lower>[^']+)' "
+    r"AND MetaData\.LastUpdatedTime <= '(?P<upper>[^']+)' )?"
     r"STARTPOSITION (?P<start>[1-9][0-9]*) MAXRESULTS (?P<limit>[1-9][0-9]*)$",
     re.IGNORECASE,
 )
@@ -34,6 +37,19 @@ def serve_query(prep: PreparedRequest, spec: Any, corpus: Any) -> Response:  # n
     records = corpus.get(entity) or []
     if not isinstance(records, list):
         records = []
+    lower = match.group("lower")
+    upper = match.group("upper")
+    if lower and upper:
+        lower_dt = _parse_datetime(lower)
+        upper_dt = _parse_datetime(upper)
+        records = [
+            record
+            for record in records
+            if isinstance(record, dict)
+            and isinstance(record.get("MetaData"), dict)
+            and isinstance(record["MetaData"].get("LastUpdatedTime"), str)
+            and lower_dt <= _parse_datetime(record["MetaData"]["LastUpdatedTime"]) <= upper_dt
+        ]
     start = int(match.group("start")) - 1
     limit = min(int(match.group("limit")), 1000)
     page = records[start : start + limit]
@@ -46,6 +62,10 @@ def serve_query(prep: PreparedRequest, spec: Any, corpus: Any) -> Response:  # n
         "time": "2026-07-26T00:00:00.000Z",
     }
     return _response(prep, 200, payload)
+
+
+def _parse_datetime(value: str) -> datetime:
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
 def _response(prep: PreparedRequest, status: int, payload: dict) -> Response:

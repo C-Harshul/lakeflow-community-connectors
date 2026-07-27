@@ -7,9 +7,14 @@
 
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
-from typing import Any, Iterator, Sequence
+from typing import (
+    Any,
+    Callable,
+    Iterator,
+    Sequence,
+)
 import json
 import time
 
@@ -42,6 +47,7 @@ from pyspark.sql.types import (
     VariantType,
     VariantVal,
 )
+from urllib.parse import quote
 import base64
 import random
 import requests
@@ -686,6 +692,130 @@ def register_lakeflow_source(spark):
 
 
     ########################################################
+    # src/databricks/labs/community_connector/sources/quickbooks/quickbooks_token_refresh.py
+    ########################################################
+
+    TOKEN_ENDPOINT = "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer"
+    DEFAULT_TIMEOUT_SECONDS = 30
+
+
+    def exchange_refresh_token(
+        client_id: str,
+        client_secret: str,
+        refresh_token: str,
+        *,
+        post: Callable = requests.post,
+    ) -> tuple[str, str]:
+        """Exchange and rotate an Intuit refresh token using HTTP Basic auth."""
+        response = post(
+            TOKEN_ENDPOINT,
+            auth=(client_id, client_secret),
+            data={
+                "grant_type": "refresh_token",
+                "refresh_token": refresh_token,
+            },
+            headers={"Accept": "application/json"},
+            timeout=DEFAULT_TIMEOUT_SECONDS,
+        )
+        if response.status_code != 200:
+            raise RuntimeError(f"QuickBooks token refresh failed with HTTP {response.status_code}")
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise RuntimeError("QuickBooks token refresh returned invalid JSON") from exc
+        if not isinstance(payload, dict):
+            raise RuntimeError("QuickBooks token refresh returned an invalid JSON object")
+        access_token = payload.get("access_token")
+        next_refresh_token = payload.get("refresh_token")
+        if not access_token or not next_refresh_token:
+            raise RuntimeError("QuickBooks token refresh omitted access_token or refresh_token")
+        return str(access_token), str(next_refresh_token)
+
+
+    def build_connection_options(
+        *,
+        access_token: str,
+        realm_id: str,
+        environment: str,
+        minor_version: str,
+    ) -> dict[str, str]:
+        """Build the complete static COMMUNITY connection option set."""
+        return {
+            "access_token": access_token,
+            "realm_id": realm_id,
+            "environment": environment,
+            "minor_version": minor_version,
+            "externalOptionsAllowList": (
+                "incremental_overlap_seconds,isDeleteFlow,"
+                "max_incremental_window_seconds,page_size,"
+                "tableConfigs,tableName,tableNameList"
+            ),
+            "sourceName": "quickbooks",
+        }
+
+
+    def run_refresh_task(dbutils) -> None:
+        """Refresh secrets and update the UC connection for the next pipeline run."""
+        from databricks.sdk import WorkspaceClient
+
+        secret_scope = dbutils.widgets.get("secret_scope")
+        connection_name = dbutils.widgets.get("connection_name")
+        environment = dbutils.widgets.get("environment")
+        minor_version = dbutils.widgets.get("minor_version")
+
+        client_id = dbutils.secrets.get(
+            scope=secret_scope,
+            key="client_id",
+        )
+        client_secret = dbutils.secrets.get(
+            scope=secret_scope,
+            key="client_secret",
+        )
+        refresh_token = dbutils.secrets.get(
+            scope=secret_scope,
+            key="refresh_token",
+        )
+        realm_id = dbutils.secrets.get(
+            scope=secret_scope,
+            key="realm_id",
+        )
+
+        access_token, next_refresh_token = exchange_refresh_token(
+            client_id,
+            client_secret,
+            refresh_token,
+        )
+
+        workspace = WorkspaceClient()
+        # Persist Intuit's rotated token before updating the connection. If the
+        # connection update fails, the next task run can still retry safely.
+        workspace.secrets.put_secret(
+            secret_scope,
+            "refresh_token",
+            string_value=next_refresh_token,
+        )
+        options = build_connection_options(
+            access_token=access_token,
+            realm_id=realm_id,
+            environment=environment,
+            minor_version=minor_version,
+        )
+        workspace.api_client.do(
+            "PATCH",
+            (f"/api/2.1/unity-catalog/connections/{quote(connection_name, safe='')}"),
+            body={
+                "name": connection_name,
+                "options": options,
+            },
+        )
+        print("QuickBooks access token refreshed and connection updated.")
+
+
+    if __name__ == "__main__":
+        run_refresh_task(dbutils)  # type: ignore[name-defined]  # noqa: F821
+
+
+    ########################################################
     # src/databricks/labs/community_connector/sources/quickbooks/quickbooks.py
     ########################################################
 
@@ -702,6 +832,12 @@ def register_lakeflow_source(spark):
     DEFAULT_PAGE_SIZE = 1000
     DEFAULT_TIMEOUT_SECONDS = 30
     DEFAULT_MAX_RETRIES = 5
+    DEFAULT_INCREMENTAL_OVERLAP_SECONDS = 60
+    DEFAULT_MAX_INCREMENTAL_WINDOW_SECONDS = 86400
+    OFFSET_VERSION = 1
+    OFFSET_VERSION_KEY = "version"
+    OFFSET_CURSOR_KEY = "updated_through"
+    CUSTOMER_CURSOR_FIELD = "last_updated_at"
 
 
     class QuickBooksApiClient:
@@ -732,11 +868,20 @@ def register_lakeflow_source(spark):
                 return "https://sandbox-quickbooks.api.intuit.com"
             return "https://quickbooks.api.intuit.com"
 
-        def iter_entity(self, entity: str, *, page_size: int) -> Iterator[dict]:
+        def iter_entity(
+            self,
+            entity: str,
+            *,
+            page_size: int,
+            where_clause: str | None = None,
+        ) -> Iterator[dict]:
             """Yield a complete positional QuickBooks query one page at a time."""
             start_position = 1
             while True:
-                query = f"SELECT * FROM {entity} STARTPOSITION {start_position} MAXRESULTS {page_size}"
+                query = f"SELECT * FROM {entity}"
+                if where_clause:
+                    query += f" WHERE {where_clause}"
+                query += f" STARTPOSITION {start_position} MAXRESULTS {page_size}"
                 body = self._get_query(query)
                 page = body.get("QueryResponse", {}).get(entity, [])
                 if not isinstance(page, list):
@@ -806,7 +951,7 @@ def register_lakeflow_source(spark):
 
 
     class QuickBooksLakeflowConnect(LakeflowConnect):
-        """Snapshot-only first slice of the QuickBooks Online connector."""
+        """QuickBooks connector with Customer incremental-update support."""
 
         def __init__(self, options: dict[str, str]) -> None:
             super().__init__(options)
@@ -827,6 +972,9 @@ def register_lakeflow_source(spark):
                 timeout_seconds=int(options.get("timeout_seconds", str(DEFAULT_TIMEOUT_SECONDS))),
                 max_retries=int(options.get("max_retries", str(DEFAULT_MAX_RETRIES))),
             )
+            # Freeze the upper bound for this Data Source instance. AvailableNow
+            # must converge instead of chasing records written while it is running.
+            self._init_ts = _format_qbo_datetime(_utc_now())
 
         def list_tables(self) -> list[str]:
             return list(TABLE_TO_ENTITY)
@@ -839,6 +987,12 @@ def register_lakeflow_source(spark):
         def read_table_metadata(self, table_name: str, table_options: dict[str, str]) -> dict:
             del table_options
             self._validate_table(table_name)
+            if table_name == "customers":
+                return {
+                    "primary_keys": ["id"],
+                    "cursor_field": CUSTOMER_CURSOR_FIELD,
+                    "ingestion_type": "cdc",
+                }
             return {
                 "primary_keys": ["id"],
                 "cursor_field": None,
@@ -848,17 +1002,82 @@ def register_lakeflow_source(spark):
         def read_table(
             self, table_name: str, start_offset: dict, table_options: dict[str, str]
         ) -> tuple[Iterator[dict], dict]:
-            del start_offset
             self._validate_table(table_name)
             page_size = int(table_options.get("page_size", str(DEFAULT_PAGE_SIZE)))
             if not 1 <= page_size <= 1000:
                 raise ValueError("page_size must be between 1 and 1000")
+
+            if table_name == "customers":
+                return self._read_customers_incrementally(
+                    start_offset,
+                    table_options,
+                    page_size=page_size,
+                )
+
             entity = TABLE_TO_ENTITY[table_name]
             records = (
                 _normalize_entity(table_name, row)
                 for row in self._client.iter_entity(entity, page_size=page_size)
             )
             return records, {}
+
+        def _read_customers_incrementally(
+            self,
+            start_offset: dict,
+            table_options: dict[str, str],
+            *,
+            page_size: int,
+        ) -> tuple[Iterator[dict], dict]:
+            cursor = _parse_customer_offset(start_offset)
+            init_dt = _parse_qbo_datetime(self._init_ts)
+
+            # First call: emit the complete snapshot, but checkpoint the time at
+            # which this reader was initialized. Changes racing with the snapshot
+            # are replayed by the overlap on the next trigger.
+            if cursor is None:
+                records = (
+                    _normalize_customer_cdc(row)
+                    for row in self._client.iter_entity("Customer", page_size=page_size)
+                )
+                return records, _customer_offset(self._init_ts)
+
+            cursor_dt = _parse_qbo_datetime(cursor)
+            if cursor_dt >= init_dt:
+                return iter([]), start_offset
+
+            overlap_seconds = _bounded_int_option(
+                table_options,
+                "incremental_overlap_seconds",
+                default=DEFAULT_INCREMENTAL_OVERLAP_SECONDS,
+                minimum=0,
+                maximum=3600,
+            )
+            max_window_seconds = _bounded_int_option(
+                table_options,
+                "max_incremental_window_seconds",
+                default=DEFAULT_MAX_INCREMENTAL_WINDOW_SECONDS,
+                minimum=60,
+                maximum=604800,
+            )
+            lower_dt = cursor_dt - timedelta(seconds=overlap_seconds)
+            upper_dt = min(
+                cursor_dt + timedelta(seconds=max_window_seconds),
+                init_dt,
+            )
+            lower = _format_qbo_datetime(lower_dt)
+            upper = _format_qbo_datetime(upper_dt)
+            where_clause = (
+                f"MetaData.LastUpdatedTime >= '{lower}' AND MetaData.LastUpdatedTime <= '{upper}'"
+            )
+            records = (
+                _normalize_customer_cdc(row)
+                for row in self._client.iter_entity(
+                    "Customer",
+                    page_size=page_size,
+                    where_clause=where_clause,
+                )
+            )
+            return records, _customer_offset(upper)
 
         def _validate_table(self, table_name: str) -> None:
             if table_name not in TABLE_TO_ENTITY:
@@ -889,6 +1108,13 @@ def register_lakeflow_source(spark):
             "bills": _normalize_bill,
         }
         return common | normalizers[table_name](row)
+
+
+    def _normalize_customer_cdc(row: dict) -> dict:
+        record = _normalize_entity("customers", row)
+        if record[CUSTOMER_CURSOR_FIELD] is None:
+            raise RuntimeError("QuickBooks Customer is missing MetaData.LastUpdatedTime")
+        return record
 
 
     def _normalize_customer(row: dict) -> dict:
@@ -1042,6 +1268,66 @@ def register_lakeflow_source(spark):
                 return None
             now = datetime.now(target.tzinfo)
             return max(0.0, (target - now).total_seconds())
+
+
+    def _utc_now() -> datetime:
+        return datetime.now(timezone.utc)
+
+
+    def _format_qbo_datetime(value: datetime) -> str:
+        if value.tzinfo is None:
+            raise ValueError("QuickBooks cursor datetime must include a timezone")
+        utc_value = value.astimezone(timezone.utc)
+        return utc_value.isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+    def _parse_qbo_datetime(value: str) -> datetime:
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except (AttributeError, ValueError) as exc:
+            raise ValueError(f"Invalid QuickBooks cursor timestamp: {value!r}") from exc
+        if parsed.tzinfo is None:
+            raise ValueError(f"QuickBooks cursor timestamp must include a timezone: {value!r}")
+        return parsed.astimezone(timezone.utc)
+
+
+    def _customer_offset(updated_through: str) -> dict:
+        return {
+            OFFSET_VERSION_KEY: OFFSET_VERSION,
+            OFFSET_CURSOR_KEY: updated_through,
+        }
+
+
+    def _parse_customer_offset(start_offset: dict) -> str | None:
+        if not start_offset:
+            return None
+        if start_offset.get(OFFSET_VERSION_KEY) != OFFSET_VERSION:
+            raise ValueError(
+                f"Unsupported QuickBooks Customer offset version: "
+                f"{start_offset.get(OFFSET_VERSION_KEY)!r}"
+            )
+        cursor = start_offset.get(OFFSET_CURSOR_KEY)
+        if not isinstance(cursor, str) or not cursor:
+            raise ValueError(f"QuickBooks Customer offset requires non-empty '{OFFSET_CURSOR_KEY}'")
+        _parse_qbo_datetime(cursor)
+        return cursor
+
+
+    def _bounded_int_option(
+        options: dict[str, str],
+        name: str,
+        *,
+        default: int,
+        minimum: int,
+        maximum: int,
+    ) -> int:
+        try:
+            value = int(options.get(name, str(default)))
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"{name} must be an integer") from exc
+        if not minimum <= value <= maximum:
+            raise ValueError(f"{name} must be between {minimum} and {maximum}")
+        return value
 
 
     ########################################################

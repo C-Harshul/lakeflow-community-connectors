@@ -79,3 +79,5 @@ def test_build_connection_options_contains_no_long_lived_secrets() -> None:
     assert "client_id" not in options
     assert "client_secret" not in options
     assert "refresh_token" not in options
+    assert "incremental_overlap_seconds" in options["externalOptionsAllowList"]
+    assert "max_incremental_window_seconds" in options["externalOptionsAllowList"]
