@@ -35,7 +35,8 @@ Customer incremental queries use inclusive time bounds:
 
 ```sql
 SELECT * FROM Customer
-WHERE MetaData.LastUpdatedTime >= '2026-07-25T09:59:00Z'
+WHERE Active IN (true, false)
+  AND MetaData.LastUpdatedTime >= '2026-07-25T09:59:00Z'
   AND MetaData.LastUpdatedTime <= '2026-07-26T10:00:00Z'
 STARTPOSITION 1 MAXRESULTS 1000
 ```
@@ -49,12 +50,12 @@ tie-breaker.
 
 | Lakeflow table | QuickBooks entity | Primary key | Initial mode |
 |---|---|---|---|
-| customers | Customer | Id | cdc (inserts and updates) |
-| vendors | Vendor | Id | cdc (inserts and updates) |
-| accounts | Account | Id | cdc (inserts and updates) |
-| items | Item | Id | cdc (inserts and updates) |
-| invoices | Invoice | Id | cdc (inserts and updates) |
-| bills | Bill | Id | cdc (inserts and updates) |
+| customers | Customer | Id | cdc (inserts, updates, inactive rows) |
+| vendors | Vendor | Id | cdc (inserts, updates, inactive rows) |
+| accounts | Account | Id | cdc (inserts, updates, inactive rows) |
+| items | Item | Id | cdc (inserts, updates, inactive rows) |
+| invoices | Invoice | Id | cdc_with_deletes |
+| bills | Bill | Id | cdc_with_deletes |
 
 ## Incremental status
 
@@ -63,14 +64,23 @@ versioned `updated_through` offset, a frozen per-run upper bound, bounded
 update windows, and replay overlap. Each table's initial batch is a complete
 snapshot.
 
-The QuickBooks CDC endpoint remains the design target for deletions:
+QuickBooks list entities use soft deletion: `Active=false` is an update, and
+the row remains in the destination. Query API calls explicitly include active
+and inactive rows because QuickBooks otherwise defaults to active-only list
+results.
 
-QuickBooks CDC returns changed entities and deletion tombstones, but:
+QuickBooks transaction entities use hard deletion. Invoice and Bill delete
+flows call:
 
-- only the previous 30 days can be queried;
-- one response can contain at most 1,000 objects;
-- the connector must subdivide saturated time windows;
-- deletion reads must be replay-safe.
+```text
+GET /v3/company/{realmId}/cdc?entities={entity}&changedSince={timestamp}
+```
+
+They filter the response to `status=Deleted` and emit tombstones containing
+the source `Id` and `MetaData.LastUpdatedTime`. CDC only covers the previous
+30 days and caps a response at 1,000 objects. Because the endpoint has no
+`changedUntil`, saturated responses cannot be safely subdivided; the
+connector fails without advancing its checkpoint and requires reconciliation.
 
 ## Source references
 

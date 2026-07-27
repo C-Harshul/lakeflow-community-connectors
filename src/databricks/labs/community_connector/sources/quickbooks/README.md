@@ -18,6 +18,10 @@ Implemented:
   `MetaData.LastUpdatedTime` queries.
 - Versioned per-table offsets, snapshot-to-incremental handoff, and replay-safe
   timestamp overlap.
+- Explicit active-and-inactive reads for Customer, Vendor, Account, and Item.
+- Replay-safe Invoice and Bill hard-delete tombstones through QuickBooks CDC.
+- Fail-closed protection for QuickBooks CDC's 30-day horizon and 1,000-object
+  response ceiling.
 
 Validation available:
 
@@ -36,18 +40,23 @@ Validation available:
   no-change replay, synthetic insert, and sparse-update acceptance.
 - Isolated serverless six-table M3 CDC pipeline with successful bootstrap and
   aggregate integrity validation for every entity.
+- Isolated serverless M4 pipeline with live acceptance proving Invoice/Bill
+  hard deletes remove destination rows while inactive Customer/Vendor rows
+  remain queryable.
 - Serverless refresh-then-ingest workflow that persists Intuit refresh-token
   rotation in a Databricks secret scope before every pipeline run.
 - `pipeline_spec.customer.yaml` for the M1 Customer smoke pipeline.
 - `pipeline_spec.yaml` for the M2 six-table snapshot pipeline.
 - `pipeline_spec.customer_cdc.yaml` for the isolated M3 Customer CDC pilot.
 - `pipeline_spec.all_tables_cdc.yaml` for six-table M3 CDC ingestion.
+- `pipeline_spec.all_tables_cdc_deletes.yaml` for M4 update, inactivation, and
+  hard-delete ingestion.
 
 Not implemented or externally validated yet:
 
 - Live synthetic insert/update acceptance for each non-Customer entity.
-- QuickBooks CDC endpoint time-window subdivision.
-- `cdc_with_deletes` and deletion reads.
+- Automated full reconciliation after an expired or saturated delete
+  checkpoint.
 - Direct Unity Catalog managed U2M. Databricks' server-side U2M exchange with
   Intuit currently returns `invalid_client`; the validated workflow in
   `quickbooks_token_refresh.py` provides automatic rotation without exposing
@@ -81,13 +90,15 @@ pipeline directly when using this mode.
 | `page_size` | `1000` | QuickBooks query page size, from 1 through 1000 |
 | `incremental_overlap_seconds` | `60` | Per-table lower-bound replay overlap, from 0 through 3600 seconds |
 | `max_incremental_window_seconds` | `86400` | Maximum per-table checkpoint window, from 60 through 604800 seconds |
+| `delete_overlap_seconds` | `60` | Invoice/Bill delete replay overlap, from 0 through 3600 seconds |
+| `initial_delete_lookback_seconds` | `300` | Invoice/Bill bootstrap delete lookback, from 0 through 86400 seconds |
 
 ## Development
 
-All six tables use `cdc` metadata. Each table's first read is a complete
-snapshot followed by bounded update queries with an independent checkpoint.
-Do not enable `cdc_with_deletes` until the delete invariants in
-`ARCHITECTURE.md` are implemented and covered by simulator and live tests.
+All six tables start with a complete snapshot followed by bounded update
+queries with independent checkpoints. Customers, vendors, accounts, and items
+use `cdc` because `Active=false` must remain queryable. Invoices and bills use
+`cdc_with_deletes`, which adds independent tombstone flows.
 
 Run the offline connector suite from the repository root:
 
@@ -107,4 +118,8 @@ community-connector create_pipeline quickbooks quickbooks_customer_m1 \
 community-connector create_pipeline quickbooks quickbooks_six_table_m3_cdc \
   --pipeline-spec \
   src/databricks/labs/community_connector/sources/quickbooks/pipeline_spec.all_tables_cdc.yaml
+
+community-connector create_pipeline quickbooks quickbooks_six_table_m4_deletes \
+  --pipeline-spec \
+  src/databricks/labs/community_connector/sources/quickbooks/pipeline_spec.all_tables_cdc_deletes.yaml
 ```

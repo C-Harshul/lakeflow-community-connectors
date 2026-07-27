@@ -4,6 +4,49 @@ Keep entries most-recent-first. Record reproducible evidence and blockers, but
 never credentials, access tokens, refresh tokens, client secrets, or customer
 payloads.
 
+## 2026-07-27 — M4 deletions and inactive records accepted
+
+- Defined QuickBooks removal semantics per entity. Customer, Vendor, Account,
+  and Item remain rows when `Active=false`; Invoice and Bill hard deletes
+  become Lakeflow tombstones.
+- List snapshots and incremental reads now explicitly request
+  `Active IN (true, false)` so QuickBooks' active-only query default cannot
+  hide inactive rows.
+- Invoice and Bill advertise `cdc_with_deletes`. Their independent delete
+  flows call the QuickBooks CDC endpoint, filter `status=Deleted`, and emit
+  schema-complete tombstones with `id`, `last_updated_at`, and `raw_json`.
+- Delete reads use a five-minute bootstrap lookback and 60-second replay
+  overlap. They fail without advancing the checkpoint if it is outside the
+  30-day CDC horizon or if a response reaches QuickBooks' 1,000-object limit.
+- Added simulator CDC fixtures plus tests for response parsing, tombstone
+  shape, update filtering, deterministic replay, stale checkpoints, saturated
+  responses, and list-entity delete rejection.
+- Offline QuickBooks suite: 67 passed and 1 expected skip. Focused Ruff checks
+  and `git diff --check` pass.
+- Created isolated schema `workspace.quickbooks_m4_deletes`, serverless
+  pipeline `quickbooks_six_table_m4_deletes`
+  (`8cb0c47b-5eb0-413a-a574-944334a606d4`), and refresh-first Job
+  `quickbooks_six_table_m4_deletes_with_token_refresh`
+  (`357743515706792`).
+- Bootstrap Job run `289803839255465` and pipeline update
+  `9a758e16-2efd-4098-a119-18d7891b0186` succeeded. All six tables had matching
+  row/distinct-ID counts and zero missing cursors or raw payloads.
+- Live acceptance Job run `957626230303714` succeeded end to end:
+  - created a clearly marked synthetic Customer, Vendor, Invoice, and Bill;
+  - ingested them in update `eaf9fa50-bb56-4ef2-9aff-43ea5cf307ca`;
+  - hard-deleted the Invoice and Bill and inactivated the Customer and Vendor;
+  - ingested removal changes in update
+    `12fe1518-ea0b-47b9-b879-989a4edee6de`.
+- Acceptance validation found a retained inactive Customer and Vendor, zero
+  matching Invoices, and zero matching Bills. This proves list inactivation
+  remains queryable while transaction tombstones remove destination rows.
+- A first fixture attempt selected a non-postable Item and stopped before
+  pipeline execution. Its partial synthetic Customer/Vendor rows were
+  subsequently inactivated by cleanup run `340358645897473` and pipeline
+  update `6f820790-7474-4090-a655-2a83e94679f3`. Final cleanup validation
+  found all three synthetic Customers and all three synthetic Vendors
+  inactive, no active synthetic list rows, and no synthetic transactions.
+
 ## 2026-07-27 — M3 extended to all six tables
 
 - Generalized the versioned snapshot-to-incremental handoff from Customers to
@@ -316,11 +359,11 @@ payloads.
 
 ### M4 — deletions and inactive records
 
-- [ ] Define deletion versus inactivation semantics for every entity
-- [ ] Implement and test `cdc_with_deletes`
-- [ ] Emit stable tombstones containing the required primary key and cursor
-- [ ] Prove deletion replay is idempotent
-- [ ] Validate live deletion and inactivation behavior in Databricks
+- [x] Define deletion versus inactivation semantics for every entity
+- [x] Implement and test `cdc_with_deletes`
+- [x] Emit stable tombstones containing the required primary key and cursor
+- [x] Prove deletion replay is idempotent
+- [x] Validate live deletion and inactivation behavior in Databricks
 
 ### M5 — multi-tenant isolation
 

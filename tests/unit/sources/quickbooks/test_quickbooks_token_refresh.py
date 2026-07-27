@@ -81,3 +81,5 @@ def test_build_connection_options_contains_no_long_lived_secrets() -> None:
     assert "refresh_token" not in options
     assert "incremental_overlap_seconds" in options["externalOptionsAllowList"]
     assert "max_incremental_window_seconds" in options["externalOptionsAllowList"]
+    assert "delete_overlap_seconds" in options["externalOptionsAllowList"]
+    assert "initial_delete_lookback_seconds" in options["externalOptionsAllowList"]

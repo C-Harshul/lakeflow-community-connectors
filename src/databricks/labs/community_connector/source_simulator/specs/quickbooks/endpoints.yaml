@@ -6,3 +6,6 @@ endpoints:
   - path: "/v3/company/{realm_id}/query"
     method: GET
     handler: databricks.labs.community_connector.source_simulator.specs.quickbooks.handlers.query:serve_query
+  - path: "/v3/company/{realm_id}/cdc"
+    method: GET
+    handler: databricks.labs.community_connector.source_simulator.specs.quickbooks.handlers.cdc:serve_cdc

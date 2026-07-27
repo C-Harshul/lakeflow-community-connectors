@@ -30,7 +30,12 @@ def test_legacy_registration_constructs_quickbooks_connector() -> None:
     ]
     assert all(
         source.lakeflow_connect.read_table_metadata(table, {})["ingestion_type"] == "cdc"
-        for table in source.lakeflow_connect.list_tables()
+        for table in ("customers", "vendors", "accounts", "items")
+    )
+    assert all(
+        source.lakeflow_connect.read_table_metadata(table, {})["ingestion_type"]
+        == "cdc_with_deletes"
+        for table in ("invoices", "bills")
     )
     assert source.schema().fieldNames() == [
         "id",

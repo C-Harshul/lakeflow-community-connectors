@@ -63,7 +63,8 @@ def build_connection_options(
         "environment": environment,
         "minor_version": minor_version,
         "externalOptionsAllowList": (
-            "incremental_overlap_seconds,isDeleteFlow,"
+            "delete_overlap_seconds,incremental_overlap_seconds,"
+            "initial_delete_lookback_seconds,isDeleteFlow,"
             "max_incremental_window_seconds,page_size,"
             "tableConfigs,tableName,tableNameList"
         ),

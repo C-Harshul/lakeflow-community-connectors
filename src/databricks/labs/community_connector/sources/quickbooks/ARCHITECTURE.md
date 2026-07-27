@@ -84,18 +84,42 @@ An ID tie-breaker is not used. QuickBooks query filters permit equality and
 support `OR`. A timestamp overlap therefore protects equal-timestamp
 boundaries without relying on an unsupported `(timestamp, Id)` range cursor.
 
-All six tables advertise `cdc` metadata and use the same offset protocol.
-Checkpoints remain isolated by table through Spark's per-flow state.
+Customers, vendors, accounts, and items advertise `cdc`. Invoices and bills
+advertise `cdc_with_deletes`. Checkpoints remain isolated by table and by
+normal/delete flow through Spark's per-flow state.
 
-## Required before deletion CDC
+## Implemented M4 deletion design
 
-The QuickBooks CDC endpoint is still required for reliable deletion
-tombstones. Before enabling `cdc_with_deletes`:
+QuickBooks has two materially different removal models:
 
-1. Subdivide any time window that reaches the 1,000-object response limit.
-2. Emit updates and deletion tombstones separately.
-3. Define recovery when a checkpoint is older than the 30-day CDC horizon.
-4. Prove replayed deletes are idempotent.
+| Tables | QuickBooks behavior | Destination behavior |
+|---|---|---|
+| customers, vendors, accounts, items | Soft delete by setting `Active=false` | Keep the row and ingest `active=false` as an update |
+| invoices, bills | Permanent transaction delete | Apply a Lakeflow tombstone keyed by `id` |
+
+List queries explicitly include `Active IN (true, false)`. Without this
+predicate QuickBooks defaults to active records, which would make inactive
+objects disappear from a fresh snapshot without producing a delete event.
+
+Invoice and Bill delete flows call the QuickBooks CDC endpoint independently
+from the bounded Query API update flow. They:
+
+1. Query a five-minute bootstrap lookback to cover snapshot/delete-flow startup
+   races.
+2. Replay a 60-second overlap after each committed delete checkpoint.
+3. Filter CDC changes to `status=Deleted`.
+4. Emit a schema-complete tombstone whose non-null fields include `id`,
+   `last_updated_at`, and `raw_json`.
+5. Advance to the QuickBooks response `time` only after Spark commits the
+   batch.
+
+QuickBooks CDC has a 30-day lookback horizon and a 1,000-object response
+ceiling. Its API exposes `changedSince` but no upper-bound parameter, so a
+saturated response cannot be safely subdivided client-side. The connector
+therefore fails without returning a new checkpoint when either limit makes
+coverage uncertain. Recovery is an explicit full reconciliation followed by
+checkpoint reset; production schedules must poll frequently enough to avoid
+these conditions.
 
 ## Open decisions
 
@@ -103,5 +127,5 @@ tombstones. Before enabling `cdc_with_deletes`:
 - Re-evaluate the default overlap duration using production latency evidence.
 - Decide whether `raw_json` should become `VARIANT` before public release.
 - Decide which QuickBooks entities require specialized typed schemas.
-- Define recovery when a checkpoint is older than the 30-day CDC horizon.
-- Define inactive-versus-deleted behavior for list entities.
+- Automate the full-reconciliation runbook for expired or saturated delete
+  checkpoints.

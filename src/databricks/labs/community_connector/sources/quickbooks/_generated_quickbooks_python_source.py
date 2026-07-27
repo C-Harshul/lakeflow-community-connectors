@@ -746,7 +746,8 @@ def register_lakeflow_source(spark):
             "environment": environment,
             "minor_version": minor_version,
             "externalOptionsAllowList": (
-                "incremental_overlap_seconds,isDeleteFlow,"
+                "delete_overlap_seconds,incremental_overlap_seconds,"
+                "initial_delete_lookback_seconds,isDeleteFlow,"
                 "max_incremental_window_seconds,page_size,"
                 "tableConfigs,tableName,tableNameList"
             ),
@@ -827,6 +828,8 @@ def register_lakeflow_source(spark):
         "invoices": "Invoice",
         "bills": "Bill",
     }
+    LIST_TABLES = frozenset({"customers", "vendors", "accounts", "items"})
+    DELETABLE_TABLES = frozenset({"invoices", "bills"})
 
     RETRIABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
     DEFAULT_PAGE_SIZE = 1000
@@ -834,6 +837,10 @@ def register_lakeflow_source(spark):
     DEFAULT_MAX_RETRIES = 5
     DEFAULT_INCREMENTAL_OVERLAP_SECONDS = 60
     DEFAULT_MAX_INCREMENTAL_WINDOW_SECONDS = 86400
+    DEFAULT_DELETE_OVERLAP_SECONDS = 60
+    DEFAULT_INITIAL_DELETE_LOOKBACK_SECONDS = 300
+    MAX_CDC_LOOKBACK_SECONDS = 30 * 86400
+    MAX_CDC_OBJECTS = 1000
     OFFSET_VERSION = 1
     OFFSET_VERSION_KEY = "version"
     OFFSET_CURSOR_KEY = "updated_through"
@@ -891,13 +898,69 @@ def register_lakeflow_source(spark):
                     return
                 start_position += page_size
 
+        def get_entity_changes(self, entity: str, *, changed_since: str) -> tuple[list[dict], str]:
+            """Return one entity's recent CDC objects and the server response time."""
+            url = f"{self._base_url}/v3/company/{self._realm_id}/cdc"
+            payload = self._get(
+                url,
+                params={
+                    "entities": entity,
+                    "changedSince": changed_since,
+                    "minorversion": str(self._minor_version),
+                },
+                operation="CDC request",
+            )
+            cdc_responses = payload.get("CDCResponse")
+            if not isinstance(cdc_responses, list):
+                raise RuntimeError("QuickBooks CDC returned an invalid CDCResponse")
+
+            rows: list[dict] = []
+            reported_count = 0
+            for cdc_response in cdc_responses:
+                if not isinstance(cdc_response, dict):
+                    raise RuntimeError("QuickBooks CDC returned an invalid response entry")
+                query_responses = cdc_response.get("QueryResponse", [])
+                if not isinstance(query_responses, list):
+                    raise RuntimeError("QuickBooks CDC returned an invalid QueryResponse")
+                for query_response in query_responses:
+                    if not isinstance(query_response, dict):
+                        raise RuntimeError("QuickBooks CDC returned an invalid query entry")
+                    entity_rows = query_response.get(entity, [])
+                    if not isinstance(entity_rows, list):
+                        raise RuntimeError(
+                            f"QuickBooks CDC returned an invalid {entity} row collection"
+                        )
+                    rows.extend(row for row in entity_rows if isinstance(row, dict))
+                    for count_key in ("maxResults", "totalCount"):
+                        count = query_response.get(count_key)
+                        if isinstance(count, int):
+                            reported_count = max(reported_count, count)
+
+            if len(rows) >= MAX_CDC_OBJECTS or reported_count >= MAX_CDC_OBJECTS:
+                raise RuntimeError(
+                    "QuickBooks CDC reached its 1,000-object response limit; "
+                    "the delete checkpoint was not advanced. Run ingestion more "
+                    "frequently or perform a full reconciliation."
+                )
+
+            response_time = payload.get("time")
+            if not isinstance(response_time, str):
+                raise RuntimeError("QuickBooks CDC response is missing its server time")
+            return rows, _format_qbo_datetime(_parse_qbo_datetime(response_time))
+
         def _get_query(self, query: str) -> dict:
             url = f"{self._base_url}/v3/company/{self._realm_id}/query"
+            return self._get(
+                url,
+                params={"query": query, "minorversion": str(self._minor_version)},
+                operation="query",
+            )
+
+        def _get(self, url: str, *, params: dict[str, str], operation: str) -> dict:
             headers = {
                 "Accept": "application/json",
                 "Authorization": f"Bearer {self._access_token}",
             }
-            params = {"query": query, "minorversion": str(self._minor_version)}
 
             for attempt in range(self._max_retries):
                 try:
@@ -923,7 +986,7 @@ def register_lakeflow_source(spark):
                         response.raise_for_status()
                     except requests.HTTPError as exc:
                         raise RuntimeError(
-                            f"QuickBooks query failed with HTTP {response.status_code}"
+                            f"QuickBooks {operation} failed with HTTP {response.status_code}"
                         ) from exc
                     try:
                         payload = response.json()
@@ -990,7 +1053,9 @@ def register_lakeflow_source(spark):
             return {
                 "primary_keys": ["id"],
                 "cursor_field": CURSOR_FIELD,
-                "ingestion_type": "cdc",
+                "ingestion_type": (
+                    "cdc_with_deletes" if table_name in DELETABLE_TABLES else "cdc"
+                ),
             }
 
         def read_table(
@@ -1024,9 +1089,14 @@ def register_lakeflow_source(spark):
             # which this reader was initialized. Changes racing with the snapshot
             # are replayed by the overlap on the next trigger.
             if cursor is None:
+                where_clause = "Active IN (true, false)" if table_name in LIST_TABLES else None
                 records = (
                     _normalize_cdc_entity(table_name, row)
-                    for row in self._client.iter_entity(entity, page_size=page_size)
+                    for row in self._client.iter_entity(
+                        entity,
+                        page_size=page_size,
+                        where_clause=where_clause,
+                    )
                 )
                 return records, _offset(self._init_ts)
 
@@ -1055,9 +1125,16 @@ def register_lakeflow_source(spark):
             )
             lower = _format_qbo_datetime(lower_dt)
             upper = _format_qbo_datetime(upper_dt)
-            where_clause = (
-                f"MetaData.LastUpdatedTime >= '{lower}' AND MetaData.LastUpdatedTime <= '{upper}'"
+            predicates = []
+            if table_name in LIST_TABLES:
+                predicates.append("Active IN (true, false)")
+            predicates.extend(
+                [
+                    f"MetaData.LastUpdatedTime >= '{lower}'",
+                    f"MetaData.LastUpdatedTime <= '{upper}'",
+                ]
             )
+            where_clause = " AND ".join(predicates)
             records = (
                 _normalize_cdc_entity(table_name, row)
                 for row in self._client.iter_entity(
@@ -1067,6 +1144,66 @@ def register_lakeflow_source(spark):
                 )
             )
             return records, _offset(upper)
+
+        def read_table_deletes(
+            self,
+            table_name: str,
+            start_offset: dict,
+            table_options: dict[str, str],
+        ) -> tuple[Iterator[dict], dict]:
+            """Read hard-delete tombstones for QuickBooks transaction entities."""
+            self._validate_table(table_name)
+            if table_name not in DELETABLE_TABLES:
+                raise ValueError(
+                    f"QuickBooks {TABLE_TO_ENTITY[table_name]} is inactivated, not hard-deleted"
+                )
+
+            cursor = _parse_offset(start_offset)
+            init_dt = _parse_qbo_datetime(self._init_ts)
+            if cursor is not None and _parse_qbo_datetime(cursor) >= init_dt:
+                return iter([]), start_offset
+
+            if cursor is None:
+                lookback_seconds = _bounded_int_option(
+                    table_options,
+                    "initial_delete_lookback_seconds",
+                    default=DEFAULT_INITIAL_DELETE_LOOKBACK_SECONDS,
+                    minimum=0,
+                    maximum=86400,
+                )
+                lower_dt = init_dt - timedelta(seconds=lookback_seconds)
+            else:
+                cursor_dt = _parse_qbo_datetime(cursor)
+                overlap_seconds = _bounded_int_option(
+                    table_options,
+                    "delete_overlap_seconds",
+                    default=DEFAULT_DELETE_OVERLAP_SECONDS,
+                    minimum=0,
+                    maximum=3600,
+                )
+                lower_dt = cursor_dt - timedelta(seconds=overlap_seconds)
+                if init_dt - lower_dt > timedelta(seconds=MAX_CDC_LOOKBACK_SECONDS):
+                    raise RuntimeError(
+                        "QuickBooks CDC can only recover deletes from the previous 30 days; "
+                        "the delete checkpoint was not advanced. Perform a full reconciliation."
+                    )
+
+            changed_since = _format_qbo_datetime(lower_dt)
+            entity = TABLE_TO_ENTITY[table_name]
+            changes, response_time = self._client.get_entity_changes(
+                entity,
+                changed_since=changed_since,
+            )
+            response_dt = _parse_qbo_datetime(response_time)
+            if response_dt < lower_dt:
+                raise RuntimeError("QuickBooks CDC server time precedes changedSince")
+
+            tombstones = (
+                _normalize_delete_entity(table_name, row)
+                for row in changes
+                if str(row.get("status", "")).lower() == "deleted"
+            )
+            return tombstones, _offset(response_time)
 
         def _validate_table(self, table_name: str) -> None:
             if table_name not in TABLE_TO_ENTITY:
@@ -1105,6 +1242,28 @@ def register_lakeflow_source(spark):
             entity = TABLE_TO_ENTITY[table_name]
             raise RuntimeError(f"QuickBooks {entity} is missing MetaData.LastUpdatedTime")
         return record
+
+
+    def _normalize_delete_entity(table_name: str, row: dict) -> dict:
+        """Build a schema-complete tombstone from QuickBooks' minimal delete body."""
+        entity_id = row.get("Id")
+        if entity_id in {None, ""}:
+            raise RuntimeError("QuickBooks deleted entity is missing Id")
+        metadata = row.get("MetaData") if isinstance(row.get("MetaData"), dict) else {}
+        last_updated_at = _optional_datetime(metadata.get("LastUpdatedTime"))
+        if last_updated_at is None:
+            raise RuntimeError("QuickBooks deleted entity is missing MetaData.LastUpdatedTime")
+
+        tombstone = {field.name: None for field in TABLE_SCHEMAS[table_name].fields}
+        tombstone.update(
+            {
+                "id": str(entity_id),
+                "sync_token": _optional_string(row.get("SyncToken")),
+                CURSOR_FIELD: last_updated_at,
+                "raw_json": json.dumps(row, separators=(",", ":"), sort_keys=True),
+            }
+        )
+        return tombstone
 
 
     def _normalize_customer(row: dict) -> dict:

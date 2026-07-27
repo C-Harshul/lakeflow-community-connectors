@@ -13,6 +13,7 @@ from databricks.labs.community_connector.sources.quickbooks import quickbooks as
 from databricks.labs.community_connector.sources.quickbooks.quickbooks import (
     QuickBooksApiClient,
     QuickBooksLakeflowConnect,
+    _normalize_delete_entity,
     _normalize_entity,
     _retry_after_seconds,
 )
@@ -69,14 +70,20 @@ def test_table_discovery_and_specialized_schemas() -> None:
     assert "vendor_ref" in connector.get_table_schema("bills", {}).fieldNames()
 
 
-def test_all_table_metadata_is_cdc() -> None:
+def test_table_metadata_distinguishes_inactivation_from_hard_deletes() -> None:
     connector = QuickBooksLakeflowConnect(_options())
 
-    for table in connector.list_tables():
+    for table in ("customers", "vendors", "accounts", "items"):
         assert connector.read_table_metadata(table, {}) == {
             "primary_keys": ["id"],
             "cursor_field": "last_updated_at",
             "ingestion_type": "cdc",
+        }
+    for table in ("invoices", "bills"):
+        assert connector.read_table_metadata(table, {}) == {
+            "primary_keys": ["id"],
+            "cursor_field": "last_updated_at",
+            "ingestion_type": "cdc_with_deletes",
         }
 
 
@@ -120,9 +127,12 @@ def test_all_tables_use_versioned_snapshot_to_incremental_handoff(
         "version": 1,
         "updated_through": "2026-07-26T12:30:00Z",
     }
-    assert (
-        f"SELECT * FROM {entity} STARTPOSITION" in (get.call_args_list[0].kwargs["params"]["query"])
-    )
+    snapshot_query = get.call_args_list[0].kwargs["params"]["query"]
+    assert f"SELECT * FROM {entity}" in snapshot_query
+    if table in quickbooks_module.LIST_TABLES:
+        assert "WHERE Active IN (true, false)" in snapshot_query
+    else:
+        assert " WHERE " not in snapshot_query
 
     incremental_records, incremental_offset = connector.read_table(
         table,
@@ -136,6 +146,8 @@ def test_all_tables_use_versioned_snapshot_to_incremental_handoff(
     assert incremental_offset == snapshot_offset
     incremental_query = get.call_args_list[1].kwargs["params"]["query"]
     assert f"SELECT * FROM {entity} WHERE" in incremental_query
+    if table in quickbooks_module.LIST_TABLES:
+        assert "Active IN (true, false) AND" in incremental_query
     assert "MetaData.LastUpdatedTime >= '2026-07-26T11:29:00Z'" in incremental_query
     assert "MetaData.LastUpdatedTime <= '2026-07-26T12:30:00Z'" in incremental_query
 
@@ -172,7 +184,7 @@ def test_customer_first_read_is_snapshot_with_versioned_boundary(
         "version": 1,
         "updated_through": "2026-07-26T12:30:00Z",
     }
-    assert " WHERE " not in get.call_args.kwargs["params"]["query"]
+    assert "WHERE Active IN (true, false)" in get.call_args.kwargs["params"]["query"]
 
     records, repeated_offset = connector.read_table(
         "customers",
@@ -415,6 +427,237 @@ def test_incremental_pagination_preserves_where_clause(
         assert f"WHERE {where_clause}" in call.kwargs["params"]["query"]
     assert "STARTPOSITION 1 MAXRESULTS 2" in get.call_args_list[0].kwargs["params"]["query"]
     assert "STARTPOSITION 3 MAXRESULTS 2" in get.call_args_list[1].kwargs["params"]["query"]
+
+
+def test_cdc_client_parses_entity_changes_and_server_time(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    get = Mock(
+        return_value=_response(
+            200,
+            {
+                "CDCResponse": [
+                    {
+                        "QueryResponse": [
+                            {
+                                "Invoice": [
+                                    {
+                                        "Id": "40",
+                                        "status": "Deleted",
+                                        "MetaData": {
+                                            "LastUpdatedTime": "2026-07-26T12:01:00Z"
+                                        },
+                                    }
+                                ],
+                                "maxResults": 1,
+                            }
+                        ]
+                    }
+                ],
+                "time": "2026-07-26T12:02:00.123Z",
+            },
+        )
+    )
+    monkeypatch.setattr(requests, "get", get)
+    client = QuickBooksApiClient(
+        access_token="token",
+        realm_id="realm",
+        environment="sandbox",
+        minor_version=75,
+    )
+
+    rows, response_time = client.get_entity_changes(
+        "Invoice",
+        changed_since="2026-07-26T12:00:00Z",
+    )
+
+    assert [row["Id"] for row in rows] == ["40"]
+    assert response_time == "2026-07-26T12:02:00Z"
+    assert get.call_args.kwargs["params"]["entities"] == "Invoice"
+    assert get.call_args.kwargs["params"]["changedSince"] == "2026-07-26T12:00:00Z"
+
+
+@pytest.mark.parametrize("table,entity", [("invoices", "Invoice"), ("bills", "Bill")])
+def test_transaction_delete_read_emits_schema_complete_tombstone(
+    monkeypatch: pytest.MonkeyPatch,
+    table: str,
+    entity: str,
+) -> None:
+    monkeypatch.setattr(
+        quickbooks_module,
+        "_utc_now",
+        lambda: datetime(2026, 7, 26, 12, 30, tzinfo=timezone.utc),
+    )
+    get = Mock(
+        return_value=_response(
+            200,
+            {
+                "CDCResponse": [
+                    {
+                        "QueryResponse": [
+                            {
+                                entity: [
+                                    {
+                                        "Id": "deleted-1",
+                                        "SyncToken": "4",
+                                        "status": "Deleted",
+                                        "MetaData": {
+                                            "LastUpdatedTime": "2026-07-26T12:29:30Z"
+                                        },
+                                    },
+                                    {
+                                        "Id": "updated-1",
+                                        "status": "Updated",
+                                        "MetaData": {
+                                            "LastUpdatedTime": "2026-07-26T12:29:45Z"
+                                        },
+                                    },
+                                ],
+                                "maxResults": 2,
+                            }
+                        ]
+                    }
+                ],
+                "time": "2026-07-26T12:30:01Z",
+            },
+        )
+    )
+    monkeypatch.setattr(requests, "get", get)
+    connector = QuickBooksLakeflowConnect(_options())
+
+    records, end_offset = connector.read_table_deletes(table, {}, {})
+    tombstones = list(records)
+
+    assert len(tombstones) == 1
+    assert set(tombstones[0]) == set(connector.get_table_schema(table, {}).fieldNames())
+    assert tombstones[0]["id"] == "deleted-1"
+    assert tombstones[0]["sync_token"] == "4"
+    assert tombstones[0]["last_updated_at"] == datetime.fromisoformat(
+        "2026-07-26T12:29:30+00:00"
+    )
+    assert tombstones[0]["raw_json"]
+    assert end_offset == {
+        "version": 1,
+        "updated_through": "2026-07-26T12:30:01Z",
+    }
+    assert get.call_args.kwargs["params"]["changedSince"] == "2026-07-26T12:25:00Z"
+
+
+def test_delete_replay_is_deterministic(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        quickbooks_module,
+        "_utc_now",
+        lambda: datetime(2026, 7, 26, 12, 30, tzinfo=timezone.utc),
+    )
+    response = _response(
+        200,
+        {
+            "CDCResponse": [{"QueryResponse": [{}]}],
+            "time": "2026-07-26T12:30:01Z",
+        },
+    )
+    get = Mock(return_value=response)
+    monkeypatch.setattr(requests, "get", get)
+    connector = QuickBooksLakeflowConnect(_options())
+    start_offset = {
+        "version": 1,
+        "updated_through": "2026-07-26T12:00:00Z",
+    }
+
+    first_records, first_offset = connector.read_table_deletes(
+        "invoices", start_offset, {}
+    )
+    second_records, second_offset = connector.read_table_deletes(
+        "invoices", start_offset, {}
+    )
+
+    assert list(first_records) == []
+    assert list(second_records) == []
+    assert first_offset == second_offset
+    assert (
+        get.call_args_list[0].kwargs["params"]["changedSince"]
+        == get.call_args_list[1].kwargs["params"]["changedSince"]
+        == "2026-07-26T11:59:00Z"
+    )
+
+
+def test_delete_checkpoint_older_than_cdc_horizon_fails_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        quickbooks_module,
+        "_utc_now",
+        lambda: datetime(2026, 7, 26, 12, 30, tzinfo=timezone.utc),
+    )
+    get = Mock()
+    monkeypatch.setattr(requests, "get", get)
+    connector = QuickBooksLakeflowConnect(_options())
+
+    with pytest.raises(RuntimeError, match="previous 30 days"):
+        connector.read_table_deletes(
+            "invoices",
+            {
+                "version": 1,
+                "updated_through": "2026-06-20T12:30:00Z",
+            },
+            {},
+        )
+    get.assert_not_called()
+
+
+def test_cdc_limit_fails_without_returning_a_checkpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        requests,
+        "get",
+        Mock(
+            return_value=_response(
+                200,
+                {
+                    "CDCResponse": [
+                        {
+                            "QueryResponse": [
+                                {"Invoice": [], "maxResults": 1000}
+                            ]
+                        }
+                    ],
+                    "time": "2026-07-26T12:30:01Z",
+                },
+            )
+        ),
+    )
+    client = QuickBooksApiClient(
+        access_token="token",
+        realm_id="realm",
+        environment="sandbox",
+        minor_version=75,
+    )
+
+    with pytest.raises(RuntimeError, match="1,000-object"):
+        client.get_entity_changes(
+            "Invoice",
+            changed_since="2026-07-26T12:00:00Z",
+        )
+
+
+def test_list_entities_reject_delete_reads() -> None:
+    connector = QuickBooksLakeflowConnect(_options())
+    with pytest.raises(ValueError, match="inactivated"):
+        connector.read_table_deletes("customers", {}, {})
+
+
+def test_delete_tombstone_requires_id_and_cursor() -> None:
+    with pytest.raises(RuntimeError, match="missing Id"):
+        _normalize_delete_entity(
+            "invoices",
+            {
+                "status": "Deleted",
+                "MetaData": {"LastUpdatedTime": "2026-07-26T12:00:00Z"},
+            },
+        )
+    with pytest.raises(RuntimeError, match="LastUpdatedTime"):
+        _normalize_delete_entity("invoices", {"Id": "1", "status": "Deleted"})
 
 
 @pytest.mark.parametrize("status", [401, 403])

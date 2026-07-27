@@ -19,8 +19,9 @@ from databricks.labs.community_connector.source_simulator.interceptor import (
 
 _QUERY_RE = re.compile(
     r"^SELECT \* FROM (?P<entity>Customer|Vendor|Account|Item|Invoice|Bill) "
-    r"(?:WHERE MetaData\.LastUpdatedTime >= '(?P<lower>[^']+)' "
-    r"AND MetaData\.LastUpdatedTime <= '(?P<upper>[^']+)' )?"
+    r"(?:WHERE (?:Active IN \(true, false\)(?: AND )?)?"
+    r"(?:MetaData\.LastUpdatedTime >= '(?P<lower>[^']+)' "
+    r"AND MetaData\.LastUpdatedTime <= '(?P<upper>[^']+)')? )?"
     r"STARTPOSITION (?P<start>[1-9][0-9]*) MAXRESULTS (?P<limit>[1-9][0-9]*)$",
     re.IGNORECASE,
 )
