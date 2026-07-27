@@ -837,7 +837,7 @@ def register_lakeflow_source(spark):
     OFFSET_VERSION = 1
     OFFSET_VERSION_KEY = "version"
     OFFSET_CURSOR_KEY = "updated_through"
-    CUSTOMER_CURSOR_FIELD = "last_updated_at"
+    CURSOR_FIELD = "last_updated_at"
 
 
     class QuickBooksApiClient:
@@ -951,7 +951,7 @@ def register_lakeflow_source(spark):
 
 
     class QuickBooksLakeflowConnect(LakeflowConnect):
-        """QuickBooks connector with Customer incremental-update support."""
+        """QuickBooks connector with checkpointed incremental-update support."""
 
         def __init__(self, options: dict[str, str]) -> None:
             super().__init__(options)
@@ -987,16 +987,10 @@ def register_lakeflow_source(spark):
         def read_table_metadata(self, table_name: str, table_options: dict[str, str]) -> dict:
             del table_options
             self._validate_table(table_name)
-            if table_name == "customers":
-                return {
-                    "primary_keys": ["id"],
-                    "cursor_field": CUSTOMER_CURSOR_FIELD,
-                    "ingestion_type": "cdc",
-                }
             return {
                 "primary_keys": ["id"],
-                "cursor_field": None,
-                "ingestion_type": "snapshot",
+                "cursor_field": CURSOR_FIELD,
+                "ingestion_type": "cdc",
             }
 
         def read_table(
@@ -1007,39 +1001,34 @@ def register_lakeflow_source(spark):
             if not 1 <= page_size <= 1000:
                 raise ValueError("page_size must be between 1 and 1000")
 
-            if table_name == "customers":
-                return self._read_customers_incrementally(
-                    start_offset,
-                    table_options,
-                    page_size=page_size,
-                )
-
-            entity = TABLE_TO_ENTITY[table_name]
-            records = (
-                _normalize_entity(table_name, row)
-                for row in self._client.iter_entity(entity, page_size=page_size)
+            return self._read_incrementally(
+                table_name,
+                start_offset,
+                table_options,
+                page_size=page_size,
             )
-            return records, {}
 
-        def _read_customers_incrementally(
+        def _read_incrementally(
             self,
+            table_name: str,
             start_offset: dict,
             table_options: dict[str, str],
             *,
             page_size: int,
         ) -> tuple[Iterator[dict], dict]:
-            cursor = _parse_customer_offset(start_offset)
+            cursor = _parse_offset(start_offset)
             init_dt = _parse_qbo_datetime(self._init_ts)
+            entity = TABLE_TO_ENTITY[table_name]
 
             # First call: emit the complete snapshot, but checkpoint the time at
             # which this reader was initialized. Changes racing with the snapshot
             # are replayed by the overlap on the next trigger.
             if cursor is None:
                 records = (
-                    _normalize_customer_cdc(row)
-                    for row in self._client.iter_entity("Customer", page_size=page_size)
+                    _normalize_cdc_entity(table_name, row)
+                    for row in self._client.iter_entity(entity, page_size=page_size)
                 )
-                return records, _customer_offset(self._init_ts)
+                return records, _offset(self._init_ts)
 
             cursor_dt = _parse_qbo_datetime(cursor)
             if cursor_dt >= init_dt:
@@ -1070,14 +1059,14 @@ def register_lakeflow_source(spark):
                 f"MetaData.LastUpdatedTime >= '{lower}' AND MetaData.LastUpdatedTime <= '{upper}'"
             )
             records = (
-                _normalize_customer_cdc(row)
+                _normalize_cdc_entity(table_name, row)
                 for row in self._client.iter_entity(
-                    "Customer",
+                    entity,
                     page_size=page_size,
                     where_clause=where_clause,
                 )
             )
-            return records, _customer_offset(upper)
+            return records, _offset(upper)
 
         def _validate_table(self, table_name: str) -> None:
             if table_name not in TABLE_TO_ENTITY:
@@ -1110,10 +1099,11 @@ def register_lakeflow_source(spark):
         return common | normalizers[table_name](row)
 
 
-    def _normalize_customer_cdc(row: dict) -> dict:
-        record = _normalize_entity("customers", row)
-        if record[CUSTOMER_CURSOR_FIELD] is None:
-            raise RuntimeError("QuickBooks Customer is missing MetaData.LastUpdatedTime")
+    def _normalize_cdc_entity(table_name: str, row: dict) -> dict:
+        record = _normalize_entity(table_name, row)
+        if record[CURSOR_FIELD] is None:
+            entity = TABLE_TO_ENTITY[table_name]
+            raise RuntimeError(f"QuickBooks {entity} is missing MetaData.LastUpdatedTime")
         return record
 
 
@@ -1291,24 +1281,23 @@ def register_lakeflow_source(spark):
         return parsed.astimezone(timezone.utc)
 
 
-    def _customer_offset(updated_through: str) -> dict:
+    def _offset(updated_through: str) -> dict:
         return {
             OFFSET_VERSION_KEY: OFFSET_VERSION,
             OFFSET_CURSOR_KEY: updated_through,
         }
 
 
-    def _parse_customer_offset(start_offset: dict) -> str | None:
+    def _parse_offset(start_offset: dict) -> str | None:
         if not start_offset:
             return None
         if start_offset.get(OFFSET_VERSION_KEY) != OFFSET_VERSION:
             raise ValueError(
-                f"Unsupported QuickBooks Customer offset version: "
-                f"{start_offset.get(OFFSET_VERSION_KEY)!r}"
+                f"Unsupported QuickBooks offset version: {start_offset.get(OFFSET_VERSION_KEY)!r}"
             )
         cursor = start_offset.get(OFFSET_CURSOR_KEY)
         if not isinstance(cursor, str) or not cursor:
-            raise ValueError(f"QuickBooks Customer offset requires non-empty '{OFFSET_CURSOR_KEY}'")
+            raise ValueError(f"QuickBooks offset requires non-empty '{OFFSET_CURSOR_KEY}'")
         _parse_qbo_datetime(cursor)
         return cursor
 

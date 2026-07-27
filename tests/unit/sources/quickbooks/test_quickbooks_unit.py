@@ -69,19 +69,75 @@ def test_table_discovery_and_specialized_schemas() -> None:
     assert "vendor_ref" in connector.get_table_schema("bills", {}).fieldNames()
 
 
-def test_customer_metadata_is_cdc_while_other_tables_remain_snapshots() -> None:
+def test_all_table_metadata_is_cdc() -> None:
     connector = QuickBooksLakeflowConnect(_options())
 
-    assert connector.read_table_metadata("customers", {}) == {
-        "primary_keys": ["id"],
-        "cursor_field": "last_updated_at",
-        "ingestion_type": "cdc",
+    for table in connector.list_tables():
+        assert connector.read_table_metadata(table, {}) == {
+            "primary_keys": ["id"],
+            "cursor_field": "last_updated_at",
+            "ingestion_type": "cdc",
+        }
+
+
+@pytest.mark.parametrize("table,entity", quickbooks_module.TABLE_TO_ENTITY.items())
+def test_all_tables_use_versioned_snapshot_to_incremental_handoff(
+    monkeypatch: pytest.MonkeyPatch,
+    table: str,
+    entity: str,
+) -> None:
+    monkeypatch.setattr(
+        quickbooks_module,
+        "_utc_now",
+        lambda: datetime(2026, 7, 26, 12, 30, tzinfo=timezone.utc),
+    )
+    get = Mock(
+        side_effect=[
+            _response(
+                200,
+                {
+                    "QueryResponse": {
+                        entity: [
+                            {
+                                "Id": "1",
+                                "MetaData": {
+                                    "LastUpdatedTime": "2026-07-26T12:00:00Z",
+                                },
+                            }
+                        ]
+                    }
+                },
+            ),
+            _response(200, {"QueryResponse": {entity: []}}),
+        ]
+    )
+    monkeypatch.setattr(requests, "get", get)
+    connector = QuickBooksLakeflowConnect(_options())
+
+    snapshot_records, snapshot_offset = connector.read_table(table, {}, {})
+    assert [record["id"] for record in snapshot_records] == ["1"]
+    assert snapshot_offset == {
+        "version": 1,
+        "updated_through": "2026-07-26T12:30:00Z",
     }
-    assert connector.read_table_metadata("vendors", {}) == {
-        "primary_keys": ["id"],
-        "cursor_field": None,
-        "ingestion_type": "snapshot",
-    }
+    assert (
+        f"SELECT * FROM {entity} STARTPOSITION" in (get.call_args_list[0].kwargs["params"]["query"])
+    )
+
+    incremental_records, incremental_offset = connector.read_table(
+        table,
+        {
+            "version": 1,
+            "updated_through": "2026-07-26T11:30:00Z",
+        },
+        {"incremental_overlap_seconds": "60"},
+    )
+    assert list(incremental_records) == []
+    assert incremental_offset == snapshot_offset
+    incremental_query = get.call_args_list[1].kwargs["params"]["query"]
+    assert f"SELECT * FROM {entity} WHERE" in incremental_query
+    assert "MetaData.LastUpdatedTime >= '2026-07-26T11:29:00Z'" in incremental_query
+    assert "MetaData.LastUpdatedTime <= '2026-07-26T12:30:00Z'" in incremental_query
 
 
 def test_customer_first_read_is_snapshot_with_versioned_boundary(
@@ -260,19 +316,22 @@ def test_customer_offset_validation(offset: dict, match: str) -> None:
         connector.read_table("customers", offset, {})
 
 
-def test_customer_cdc_requires_last_updated_time(
+@pytest.mark.parametrize("table,entity", quickbooks_module.TABLE_TO_ENTITY.items())
+def test_cdc_requires_last_updated_time(
     monkeypatch: pytest.MonkeyPatch,
+    table: str,
+    entity: str,
 ) -> None:
     get = Mock(
         return_value=_response(
             200,
-            {"QueryResponse": {"Customer": [{"Id": "1"}]}},
+            {"QueryResponse": {entity: [{"Id": "1"}]}},
         )
     )
     monkeypatch.setattr(requests, "get", get)
     connector = QuickBooksLakeflowConnect(_options())
 
-    records, _ = connector.read_table("customers", {}, {})
+    records, _ = connector.read_table(table, {}, {})
 
     with pytest.raises(RuntimeError, match="LastUpdatedTime"):
         list(records)

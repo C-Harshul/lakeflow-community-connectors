@@ -28,6 +28,10 @@ def test_legacy_registration_constructs_quickbooks_connector() -> None:
         "invoices",
         "bills",
     ]
+    assert all(
+        source.lakeflow_connect.read_table_metadata(table, {})["ingestion_type"] == "cdc"
+        for table in source.lakeflow_connect.list_tables()
+    )
     assert source.schema().fieldNames() == [
         "id",
         "sync_token",

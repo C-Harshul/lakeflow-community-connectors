@@ -4,6 +4,44 @@ Keep entries most-recent-first. Record reproducible evidence and blockers, but
 never credentials, access tokens, refresh tokens, client secrets, or customer
 payloads.
 
+## 2026-07-27 — M3 extended to all six tables
+
+- Generalized the versioned snapshot-to-incremental handoff from Customers to
+  vendors, accounts, items, invoices, and bills without duplicating per-entity
+  checkpoint code.
+- All six tables now advertise `cdc`, sequence SCD Type 1 merges by
+  `last_updated_at`, and maintain independent versioned offsets.
+- Added simulator and unit coverage proving every entity uses its own
+  QuickBooks query name, includes equal-timestamp boundaries, rejects missing
+  `LastUpdatedTime`, and preserves bounded-window replay semantics.
+- Offline suite result: 58 passed and 2 expected skips. The six-table pipeline
+  specification validates with no warnings, and rebuilt wheels contain no
+  bytecode cache artifacts.
+- Created isolated schema `workspace.quickbooks_m3_all`.
+- Deployed serverless pipeline `quickbooks_six_table_m3_cdc`
+  (`a3474c64-a29c-4b3b-a422-e90b20b2a67d`) and refresh-first Job
+  `quickbooks_six_table_m3_cdc_with_token_refresh` (`523934347063516`).
+- Bootstrap run `981658094318392` and pipeline update
+  `938f3d1d-e5ab-4cae-9ada-907d6eafeab1` completed all six flows.
+- Bootstrap aggregate validation found matching row and distinct-ID counts,
+  with zero invalid IDs, missing cursors, or missing raw payloads:
+  - customers: 30
+  - vendors: 71
+  - accounts: 90
+  - items: 23
+  - invoices: 42
+  - bills: 85
+- No-change replay run `330833443763570` and pipeline update
+  `69afeca1-a4a0-4129-b451-880fa3d6c700` completed all six flows. Repeating the
+  aggregate validation produced identical results, proving all six
+  checkpoints resume idempotently.
+- Customer already has live synthetic insert/update acceptance. Additional
+  per-entity synthetic mutations remain an optional deeper acceptance step;
+  all non-Customer entities have completed live bounded-query bootstrap and
+  checkpoint replay.
+- The SQL warehouse was stopped after validation. M2 and the Customer-only M3
+  resources were not modified.
+
 ## 2026-07-27 — M3 Customer live acceptance complete
 
 - Created isolated schema `workspace.quickbooks_m3`.
@@ -274,7 +312,7 @@ payloads.
 - [x] Prove replay after failure is idempotent and does not advance the
       checkpoint prematurely
 - [x] Validate Customer inserts and updates against live QuickBooks
-- [ ] Extend the proven incremental pattern to the other five tables
+- [x] Extend the proven incremental pattern to the other five tables
 
 ### M4 — deletions and inactive records
 

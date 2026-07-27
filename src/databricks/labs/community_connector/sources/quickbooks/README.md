@@ -14,9 +14,9 @@ Implemented:
 - Stable typed core fields plus a lossless `raw_json` payload.
 - Complete `STARTPOSITION` / `MAXRESULTS` snapshot pagination.
 - Bounded retries for throttling, transient HTTP failures, and network errors.
-- Checkpointed Customer inserts and updates using bounded
+- Checkpointed inserts and updates for all six tables using bounded
   `MetaData.LastUpdatedTime` queries.
-- Versioned Customer offsets, snapshot-to-incremental handoff, and replay-safe
+- Versioned per-table offsets, snapshot-to-incremental handoff, and replay-safe
   timestamp overlap.
 
 Validation available:
@@ -34,15 +34,18 @@ Validation available:
   parity for customers, vendors, accounts, items, invoices, and bills.
 - Serverless Databricks M3 Customer CDC pipeline with successful bootstrap,
   no-change replay, synthetic insert, and sparse-update acceptance.
+- Isolated serverless six-table M3 CDC pipeline with successful bootstrap and
+  aggregate integrity validation for every entity.
 - Serverless refresh-then-ingest workflow that persists Intuit refresh-token
   rotation in a Databricks secret scope before every pipeline run.
 - `pipeline_spec.customer.yaml` for the M1 Customer smoke pipeline.
 - `pipeline_spec.yaml` for the M2 six-table snapshot pipeline.
 - `pipeline_spec.customer_cdc.yaml` for the isolated M3 Customer CDC pilot.
+- `pipeline_spec.all_tables_cdc.yaml` for six-table M3 CDC ingestion.
 
 Not implemented or externally validated yet:
 
-- Incremental updates for vendors, accounts, items, invoices, and bills.
+- Live synthetic insert/update acceptance for each non-Customer entity.
 - QuickBooks CDC endpoint time-window subdivision.
 - `cdc_with_deletes` and deletion reads.
 - Direct Unity Catalog managed U2M. Databricks' server-side U2M exchange with
@@ -76,13 +79,13 @@ pipeline directly when using this mode.
 | Option | Default | Description |
 |---|---:|---|
 | `page_size` | `1000` | QuickBooks query page size, from 1 through 1000 |
-| `incremental_overlap_seconds` | `60` | Customer lower-bound replay overlap, from 0 through 3600 seconds |
-| `max_incremental_window_seconds` | `86400` | Maximum Customer checkpoint window, from 60 through 604800 seconds |
+| `incremental_overlap_seconds` | `60` | Per-table lower-bound replay overlap, from 0 through 3600 seconds |
+| `max_incremental_window_seconds` | `86400` | Maximum per-table checkpoint window, from 60 through 604800 seconds |
 
 ## Development
 
-Customers are an M3 `cdc` pilot. Their initial read is a complete snapshot,
-followed by bounded update queries. The other five tables remain snapshots.
+All six tables use `cdc` metadata. Each table's first read is a complete
+snapshot followed by bounded update queries with an independent checkpoint.
 Do not enable `cdc_with_deletes` until the delete invariants in
 `ARCHITECTURE.md` are implemented and covered by simulator and live tests.
 
@@ -93,14 +96,15 @@ PYTHONPATH=src .venv/bin/python -m pytest tests/unit/sources/quickbooks -q
 ```
 
 Once QuickBooks and Databricks credentials are current, deploy the Customer
-smoke pipeline first and then update it to the six-table spec:
+smoke pipeline first, preserve the M2 snapshot pipeline for comparison, and
+create an isolated six-table CDC pipeline:
 
 ```bash
 community-connector create_pipeline quickbooks quickbooks_customer_m1 \
   --pipeline-spec \
   src/databricks/labs/community_connector/sources/quickbooks/pipeline_spec.customer.yaml
 
-community-connector update_pipeline quickbooks_customer_m1 \
+community-connector create_pipeline quickbooks quickbooks_six_table_m3_cdc \
   --pipeline-spec \
-  src/databricks/labs/community_connector/sources/quickbooks/pipeline_spec.yaml
+  src/databricks/labs/community_connector/sources/quickbooks/pipeline_spec.all_tables_cdc.yaml
 ```

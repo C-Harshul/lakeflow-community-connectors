@@ -1,4 +1,4 @@
-"""Stable Spark schemas for the QuickBooks Online snapshot tables."""
+"""Stable Spark schemas for the QuickBooks Online ingestion tables."""
 
 from pyspark.sql.types import (
     BooleanType,

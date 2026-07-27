@@ -50,17 +50,18 @@ tie-breaker.
 | Lakeflow table | QuickBooks entity | Primary key | Initial mode |
 |---|---|---|---|
 | customers | Customer | Id | cdc (inserts and updates) |
-| vendors | Vendor | Id | snapshot |
-| accounts | Account | Id | snapshot |
-| items | Item | Id | snapshot |
-| invoices | Invoice | Id | snapshot |
-| bills | Bill | Id | snapshot |
+| vendors | Vendor | Id | cdc (inserts and updates) |
+| accounts | Account | Id | cdc (inserts and updates) |
+| items | Item | Id | cdc (inserts and updates) |
+| invoices | Invoice | Id | cdc (inserts and updates) |
+| bills | Bill | Id | cdc (inserts and updates) |
 
 ## Incremental status
 
-Customer inserts and updates are implemented with a versioned
-`updated_through` offset, a frozen per-run upper bound, bounded update windows,
-and replay overlap. The initial Customer batch is a complete snapshot.
+Inserts and updates for all six tables are implemented with an independent
+versioned `updated_through` offset, a frozen per-run upper bound, bounded
+update windows, and replay overlap. Each table's initial batch is a complete
+snapshot.
 
 The QuickBooks CDC endpoint remains the design target for deletions:
 

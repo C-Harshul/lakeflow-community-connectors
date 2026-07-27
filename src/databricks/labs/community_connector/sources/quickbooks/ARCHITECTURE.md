@@ -45,9 +45,10 @@ The first version does not partition positional QuickBooks query pages across
 Spark executors. Parallel page reads can drift while the source changes and can
 amplify API throttling.
 
-## Implemented M3 Customer incremental design
+## Implemented M3 incremental design
 
-The Customer offset is versioned and contains the committed source watermark:
+Each table has an independent versioned offset containing its committed source
+watermark:
 
 ```json
 {
@@ -60,7 +61,7 @@ Each connector instance freezes its initialization timestamp. That timestamp is
 the upper bound for the whole AvailableNow run, allowing it to terminate even
 when QuickBooks is being updated concurrently.
 
-During Customer bootstrap:
+During each table's bootstrap:
 
 1. Capture the CDC boundary before the first snapshot request.
 2. Emit the complete positional snapshot.
@@ -68,7 +69,7 @@ During Customer bootstrap:
 4. On the next trigger, replay the configured overlap below that boundary so
    changes racing the snapshot are included.
 
-During Customer incremental reads:
+During incremental reads:
 
 1. Query an inclusive `MetaData.LastUpdatedTime` lower and upper bound.
 2. Default to a 60-second lower-bound overlap and a one-day maximum window.
@@ -83,8 +84,8 @@ An ID tie-breaker is not used. QuickBooks query filters permit equality and
 support `OR`. A timestamp overlap therefore protects equal-timestamp
 boundaries without relying on an unsupported `(timestamp, Id)` range cursor.
 
-Customer metadata is `cdc`. Vendors, accounts, items, invoices, and bills
-remain `snapshot` until the Customer pattern passes live acceptance.
+All six tables advertise `cdc` metadata and use the same offset protocol.
+Checkpoints remain isolated by table through Spark's per-flow state.
 
 ## Required before deletion CDC
 
