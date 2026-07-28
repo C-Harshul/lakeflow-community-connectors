@@ -15,6 +15,7 @@ _DECIMAL = DecimalType(38, 9)
 
 def _common_fields() -> list[StructField]:
     return [
+        StructField("realm_id", StringType(), nullable=False),
         StructField("id", StringType(), nullable=False),
         StructField("sync_token", StringType(), nullable=True),
         StructField("created_at", TimestampType(), nullable=True),

@@ -8,4 +8,5 @@ objects:
       table_configuration:
         scd_type: SCD_TYPE_1
         primary_keys:
+          - realm_id
           - id

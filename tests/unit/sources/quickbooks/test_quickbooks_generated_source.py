@@ -38,6 +38,7 @@ def test_legacy_registration_constructs_quickbooks_connector() -> None:
         for table in ("invoices", "bills")
     )
     assert source.schema().fieldNames() == [
+        "realm_id",
         "id",
         "sync_token",
         "created_at",

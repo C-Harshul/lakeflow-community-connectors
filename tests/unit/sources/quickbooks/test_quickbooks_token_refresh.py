@@ -8,6 +8,8 @@ from databricks.labs.community_connector.sources.quickbooks.quickbooks_token_ref
     TOKEN_ENDPOINT,
     build_connection_options,
     exchange_refresh_token,
+    tenant_binding_comment,
+    validate_tenant_binding,
 )
 
 
@@ -83,3 +85,48 @@ def test_build_connection_options_contains_no_long_lived_secrets() -> None:
     assert "max_incremental_window_seconds" in options["externalOptionsAllowList"]
     assert "delete_overlap_seconds" in options["externalOptionsAllowList"]
     assert "initial_delete_lookback_seconds" in options["externalOptionsAllowList"]
+
+
+def test_tenant_binding_accepts_one_consistent_realm() -> None:
+    validate_tenant_binding(
+        expected_realm_id="realm-a",
+        secret_realm_id="realm-a",
+        connection_comment=tenant_binding_comment("realm-a"),
+    )
+
+
+@pytest.mark.parametrize(
+    "expected,secret,connection,match",
+    [
+        ("", "realm-a", "realm-a", "expected_realm_id"),
+        ("realm-a", "realm-b", "realm-a", "secret scope"),
+        ("realm-a", "realm-a", "realm-b", "Unity Catalog connection"),
+    ],
+)
+def test_tenant_binding_rejects_cross_tenant_refresh(
+    expected: str,
+    secret: str,
+    connection: str,
+    match: str,
+) -> None:
+    with pytest.raises((ValueError, RuntimeError), match=match):
+        validate_tenant_binding(
+            expected_realm_id=expected,
+            secret_realm_id=secret,
+            connection_comment=tenant_binding_comment(connection),
+        )
+
+
+def test_rejected_tenant_binding_does_not_affect_another_tenant() -> None:
+    with pytest.raises(RuntimeError, match="secret scope"):
+        validate_tenant_binding(
+            expected_realm_id="realm-a",
+            secret_realm_id="revoked-or-wrong-realm",
+            connection_comment=tenant_binding_comment("realm-a"),
+        )
+
+    validate_tenant_binding(
+        expected_realm_id="realm-b",
+        secret_realm_id="realm-b",
+        connection_comment=tenant_binding_comment("realm-b"),
+    )

@@ -49,6 +49,7 @@ from pyspark.sql.types import (
 )
 from urllib.parse import quote
 import base64
+import hashlib
 import random
 import requests
 
@@ -607,6 +608,7 @@ def register_lakeflow_source(spark):
 
     def _common_fields() -> list[StructField]:
         return [
+            StructField("realm_id", StringType(), nullable=False),
             StructField("id", StringType(), nullable=False),
             StructField("sync_token", StringType(), nullable=True),
             StructField("created_at", TimestampType(), nullable=True),
@@ -697,6 +699,34 @@ def register_lakeflow_source(spark):
 
     TOKEN_ENDPOINT = "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer"
     DEFAULT_TIMEOUT_SECONDS = 30
+    TENANT_BINDING_PREFIX = "quickbooks-realm-sha256:"
+
+
+    def tenant_binding_comment(realm_id: str) -> str:
+        """Return a non-reversible connection marker for one QuickBooks realm."""
+        digest = hashlib.sha256(realm_id.encode("utf-8")).hexdigest()
+        return f"{TENANT_BINDING_PREFIX}{digest}"
+
+
+    def validate_tenant_binding(
+        *,
+        expected_realm_id: str,
+        secret_realm_id: str,
+        connection_comment: str,
+    ) -> None:
+        """Fail before token rotation if a Job, secret scope, and connection differ."""
+        if not expected_realm_id:
+            raise ValueError("expected_realm_id is required for tenant-isolated refresh")
+        if secret_realm_id != expected_realm_id:
+            raise RuntimeError(
+                "QuickBooks tenant binding failed: the secret scope realm_id does not "
+                "match this Job's expected_realm_id"
+            )
+        if connection_comment != tenant_binding_comment(expected_realm_id):
+            raise RuntimeError(
+                "QuickBooks tenant binding failed: the Unity Catalog connection binding "
+                "does not match this Job's expected_realm_id"
+            )
 
 
     def exchange_refresh_token(
@@ -761,8 +791,27 @@ def register_lakeflow_source(spark):
 
         secret_scope = dbutils.widgets.get("secret_scope")
         connection_name = dbutils.widgets.get("connection_name")
+        expected_realm_id = dbutils.widgets.get("expected_realm_id").strip()
         environment = dbutils.widgets.get("environment")
         minor_version = dbutils.widgets.get("minor_version")
+
+        realm_id = dbutils.secrets.get(
+            scope=secret_scope,
+            key="realm_id",
+        )
+
+        workspace = WorkspaceClient()
+        connection = workspace.api_client.do(
+            "GET",
+            (f"/api/2.1/unity-catalog/connections/{quote(connection_name, safe='')}"),
+        )
+        if not isinstance(connection, dict) or not isinstance(connection.get("comment"), str):
+            raise RuntimeError("Unity Catalog connection is missing its QuickBooks tenant binding")
+        validate_tenant_binding(
+            expected_realm_id=expected_realm_id,
+            secret_realm_id=realm_id,
+            connection_comment=connection["comment"],
+        )
 
         client_id = dbutils.secrets.get(
             scope=secret_scope,
@@ -776,18 +825,12 @@ def register_lakeflow_source(spark):
             scope=secret_scope,
             key="refresh_token",
         )
-        realm_id = dbutils.secrets.get(
-            scope=secret_scope,
-            key="realm_id",
-        )
-
         access_token, next_refresh_token = exchange_refresh_token(
             client_id,
             client_secret,
             refresh_token,
         )
 
-        workspace = WorkspaceClient()
         # Persist Intuit's rotated token before updating the connection. If the
         # connection update fails, the next task run can still retry safely.
         workspace.secrets.put_secret(
@@ -806,6 +849,7 @@ def register_lakeflow_source(spark):
             (f"/api/2.1/unity-catalog/connections/{quote(connection_name, safe='')}"),
             body={
                 "name": connection_name,
+                "comment": connection["comment"],
                 "options": options,
             },
         )
@@ -841,9 +885,12 @@ def register_lakeflow_source(spark):
     DEFAULT_INITIAL_DELETE_LOOKBACK_SECONDS = 300
     MAX_CDC_LOOKBACK_SECONDS = 30 * 86400
     MAX_CDC_OBJECTS = 1000
-    OFFSET_VERSION = 1
+    OFFSET_VERSION = 2
     OFFSET_VERSION_KEY = "version"
     OFFSET_CURSOR_KEY = "updated_through"
+    OFFSET_REALM_KEY = "realm_id"
+    OFFSET_TABLE_KEY = "table_name"
+    OFFSET_FLOW_KEY = "flow"
     CURSOR_FIELD = "last_updated_at"
 
 
@@ -1026,6 +1073,7 @@ def register_lakeflow_source(spark):
                 )
             if not realm_id:
                 raise ValueError("QuickBooks requires realm_id for the authorized company")
+            self._realm_id = realm_id
 
             self._client = QuickBooksApiClient(
                 access_token=access_token,
@@ -1051,7 +1099,7 @@ def register_lakeflow_source(spark):
             del table_options
             self._validate_table(table_name)
             return {
-                "primary_keys": ["id"],
+                "primary_keys": ["realm_id", "id"],
                 "cursor_field": CURSOR_FIELD,
                 "ingestion_type": (
                     "cdc_with_deletes" if table_name in DELETABLE_TABLES else "cdc"
@@ -1081,7 +1129,12 @@ def register_lakeflow_source(spark):
             *,
             page_size: int,
         ) -> tuple[Iterator[dict], dict]:
-            cursor = _parse_offset(start_offset)
+            cursor = _parse_offset(
+                start_offset,
+                expected_realm_id=self._realm_id,
+                expected_table_name=table_name,
+                expected_flow="updates",
+            )
             init_dt = _parse_qbo_datetime(self._init_ts)
             entity = TABLE_TO_ENTITY[table_name]
 
@@ -1091,14 +1144,19 @@ def register_lakeflow_source(spark):
             if cursor is None:
                 where_clause = "Active IN (true, false)" if table_name in LIST_TABLES else None
                 records = (
-                    _normalize_cdc_entity(table_name, row)
+                    _normalize_cdc_entity(table_name, row, realm_id=self._realm_id)
                     for row in self._client.iter_entity(
                         entity,
                         page_size=page_size,
                         where_clause=where_clause,
                     )
                 )
-                return records, _offset(self._init_ts)
+                return records, _offset(
+                    self._init_ts,
+                    realm_id=self._realm_id,
+                    table_name=table_name,
+                    flow="updates",
+                )
 
             cursor_dt = _parse_qbo_datetime(cursor)
             if cursor_dt >= init_dt:
@@ -1136,14 +1194,19 @@ def register_lakeflow_source(spark):
             )
             where_clause = " AND ".join(predicates)
             records = (
-                _normalize_cdc_entity(table_name, row)
+                _normalize_cdc_entity(table_name, row, realm_id=self._realm_id)
                 for row in self._client.iter_entity(
                     entity,
                     page_size=page_size,
                     where_clause=where_clause,
                 )
             )
-            return records, _offset(upper)
+            return records, _offset(
+                upper,
+                realm_id=self._realm_id,
+                table_name=table_name,
+                flow="updates",
+            )
 
         def read_table_deletes(
             self,
@@ -1158,7 +1221,12 @@ def register_lakeflow_source(spark):
                     f"QuickBooks {TABLE_TO_ENTITY[table_name]} is inactivated, not hard-deleted"
                 )
 
-            cursor = _parse_offset(start_offset)
+            cursor = _parse_offset(
+                start_offset,
+                expected_realm_id=self._realm_id,
+                expected_table_name=table_name,
+                expected_flow="deletes",
+            )
             init_dt = _parse_qbo_datetime(self._init_ts)
             if cursor is not None and _parse_qbo_datetime(cursor) >= init_dt:
                 return iter([]), start_offset
@@ -1199,11 +1267,16 @@ def register_lakeflow_source(spark):
                 raise RuntimeError("QuickBooks CDC server time precedes changedSince")
 
             tombstones = (
-                _normalize_delete_entity(table_name, row)
+                _normalize_delete_entity(table_name, row, realm_id=self._realm_id)
                 for row in changes
                 if str(row.get("status", "")).lower() == "deleted"
             )
-            return tombstones, _offset(response_time)
+            return tombstones, _offset(
+                response_time,
+                realm_id=self._realm_id,
+                table_name=table_name,
+                flow="deletes",
+            )
 
         def _validate_table(self, table_name: str) -> None:
             if table_name not in TABLE_TO_ENTITY:
@@ -1213,12 +1286,13 @@ def register_lakeflow_source(spark):
                 )
 
 
-    def _normalize_entity(table_name: str, row: dict) -> dict:
+    def _normalize_entity(table_name: str, row: dict, *, realm_id: str) -> dict:
         entity_id = row.get("Id")
         if entity_id in {None, ""}:
             raise RuntimeError("QuickBooks entity is missing Id")
         metadata = row.get("MetaData") if isinstance(row.get("MetaData"), dict) else {}
         common = {
+            "realm_id": realm_id,
             "id": str(entity_id),
             "sync_token": _optional_string(row.get("SyncToken")),
             "created_at": _optional_datetime(metadata.get("CreateTime")),
@@ -1236,15 +1310,15 @@ def register_lakeflow_source(spark):
         return common | normalizers[table_name](row)
 
 
-    def _normalize_cdc_entity(table_name: str, row: dict) -> dict:
-        record = _normalize_entity(table_name, row)
+    def _normalize_cdc_entity(table_name: str, row: dict, *, realm_id: str) -> dict:
+        record = _normalize_entity(table_name, row, realm_id=realm_id)
         if record[CURSOR_FIELD] is None:
             entity = TABLE_TO_ENTITY[table_name]
             raise RuntimeError(f"QuickBooks {entity} is missing MetaData.LastUpdatedTime")
         return record
 
 
-    def _normalize_delete_entity(table_name: str, row: dict) -> dict:
+    def _normalize_delete_entity(table_name: str, row: dict, *, realm_id: str) -> dict:
         """Build a schema-complete tombstone from QuickBooks' minimal delete body."""
         entity_id = row.get("Id")
         if entity_id in {None, ""}:
@@ -1257,6 +1331,7 @@ def register_lakeflow_source(spark):
         tombstone = {field.name: None for field in TABLE_SCHEMAS[table_name].fields}
         tombstone.update(
             {
+                "realm_id": realm_id,
                 "id": str(entity_id),
                 "sync_token": _optional_string(row.get("SyncToken")),
                 CURSOR_FIELD: last_updated_at,
@@ -1440,19 +1515,50 @@ def register_lakeflow_source(spark):
         return parsed.astimezone(timezone.utc)
 
 
-    def _offset(updated_through: str) -> dict:
+    def _offset(
+        updated_through: str,
+        *,
+        realm_id: str,
+        table_name: str,
+        flow: str,
+    ) -> dict:
         return {
             OFFSET_VERSION_KEY: OFFSET_VERSION,
+            OFFSET_REALM_KEY: realm_id,
+            OFFSET_TABLE_KEY: table_name,
+            OFFSET_FLOW_KEY: flow,
             OFFSET_CURSOR_KEY: updated_through,
         }
 
 
-    def _parse_offset(start_offset: dict) -> str | None:
+    def _parse_offset(
+        start_offset: dict,
+        *,
+        expected_realm_id: str,
+        expected_table_name: str,
+        expected_flow: str,
+    ) -> str | None:
         if not start_offset:
             return None
         if start_offset.get(OFFSET_VERSION_KEY) != OFFSET_VERSION:
             raise ValueError(
                 f"Unsupported QuickBooks offset version: {start_offset.get(OFFSET_VERSION_KEY)!r}"
+            )
+        realm_id = start_offset.get(OFFSET_REALM_KEY)
+        if realm_id != expected_realm_id:
+            raise ValueError(
+                "QuickBooks offset realm_id does not match the configured Unity Catalog "
+                "connection; reset the pipeline checkpoint only after validating the tenant"
+            )
+        if start_offset.get(OFFSET_TABLE_KEY) != expected_table_name:
+            raise ValueError(
+                "QuickBooks offset table_name does not match the requested table; "
+                "check the pipeline's checkpoint isolation"
+            )
+        if start_offset.get(OFFSET_FLOW_KEY) != expected_flow:
+            raise ValueError(
+                "QuickBooks offset flow does not match the requested update/delete flow; "
+                "check the pipeline's checkpoint isolation"
             )
         cursor = start_offset.get(OFFSET_CURSOR_KEY)
         if not isinstance(cursor, str) or not cursor:

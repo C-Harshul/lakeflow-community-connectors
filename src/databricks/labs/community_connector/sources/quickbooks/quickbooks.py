@@ -44,9 +44,12 @@ DEFAULT_DELETE_OVERLAP_SECONDS = 60
 DEFAULT_INITIAL_DELETE_LOOKBACK_SECONDS = 300
 MAX_CDC_LOOKBACK_SECONDS = 30 * 86400
 MAX_CDC_OBJECTS = 1000
-OFFSET_VERSION = 1
+OFFSET_VERSION = 2
 OFFSET_VERSION_KEY = "version"
 OFFSET_CURSOR_KEY = "updated_through"
+OFFSET_REALM_KEY = "realm_id"
+OFFSET_TABLE_KEY = "table_name"
+OFFSET_FLOW_KEY = "flow"
 CURSOR_FIELD = "last_updated_at"
 
 
@@ -229,6 +232,7 @@ class QuickBooksLakeflowConnect(LakeflowConnect):
             )
         if not realm_id:
             raise ValueError("QuickBooks requires realm_id for the authorized company")
+        self._realm_id = realm_id
 
         self._client = QuickBooksApiClient(
             access_token=access_token,
@@ -254,7 +258,7 @@ class QuickBooksLakeflowConnect(LakeflowConnect):
         del table_options
         self._validate_table(table_name)
         return {
-            "primary_keys": ["id"],
+            "primary_keys": ["realm_id", "id"],
             "cursor_field": CURSOR_FIELD,
             "ingestion_type": (
                 "cdc_with_deletes" if table_name in DELETABLE_TABLES else "cdc"
@@ -284,7 +288,12 @@ class QuickBooksLakeflowConnect(LakeflowConnect):
         *,
         page_size: int,
     ) -> tuple[Iterator[dict], dict]:
-        cursor = _parse_offset(start_offset)
+        cursor = _parse_offset(
+            start_offset,
+            expected_realm_id=self._realm_id,
+            expected_table_name=table_name,
+            expected_flow="updates",
+        )
         init_dt = _parse_qbo_datetime(self._init_ts)
         entity = TABLE_TO_ENTITY[table_name]
 
@@ -294,14 +303,19 @@ class QuickBooksLakeflowConnect(LakeflowConnect):
         if cursor is None:
             where_clause = "Active IN (true, false)" if table_name in LIST_TABLES else None
             records = (
-                _normalize_cdc_entity(table_name, row)
+                _normalize_cdc_entity(table_name, row, realm_id=self._realm_id)
                 for row in self._client.iter_entity(
                     entity,
                     page_size=page_size,
                     where_clause=where_clause,
                 )
             )
-            return records, _offset(self._init_ts)
+            return records, _offset(
+                self._init_ts,
+                realm_id=self._realm_id,
+                table_name=table_name,
+                flow="updates",
+            )
 
         cursor_dt = _parse_qbo_datetime(cursor)
         if cursor_dt >= init_dt:
@@ -339,14 +353,19 @@ class QuickBooksLakeflowConnect(LakeflowConnect):
         )
         where_clause = " AND ".join(predicates)
         records = (
-            _normalize_cdc_entity(table_name, row)
+            _normalize_cdc_entity(table_name, row, realm_id=self._realm_id)
             for row in self._client.iter_entity(
                 entity,
                 page_size=page_size,
                 where_clause=where_clause,
             )
         )
-        return records, _offset(upper)
+        return records, _offset(
+            upper,
+            realm_id=self._realm_id,
+            table_name=table_name,
+            flow="updates",
+        )
 
     def read_table_deletes(
         self,
@@ -361,7 +380,12 @@ class QuickBooksLakeflowConnect(LakeflowConnect):
                 f"QuickBooks {TABLE_TO_ENTITY[table_name]} is inactivated, not hard-deleted"
             )
 
-        cursor = _parse_offset(start_offset)
+        cursor = _parse_offset(
+            start_offset,
+            expected_realm_id=self._realm_id,
+            expected_table_name=table_name,
+            expected_flow="deletes",
+        )
         init_dt = _parse_qbo_datetime(self._init_ts)
         if cursor is not None and _parse_qbo_datetime(cursor) >= init_dt:
             return iter([]), start_offset
@@ -402,11 +426,16 @@ class QuickBooksLakeflowConnect(LakeflowConnect):
             raise RuntimeError("QuickBooks CDC server time precedes changedSince")
 
         tombstones = (
-            _normalize_delete_entity(table_name, row)
+            _normalize_delete_entity(table_name, row, realm_id=self._realm_id)
             for row in changes
             if str(row.get("status", "")).lower() == "deleted"
         )
-        return tombstones, _offset(response_time)
+        return tombstones, _offset(
+            response_time,
+            realm_id=self._realm_id,
+            table_name=table_name,
+            flow="deletes",
+        )
 
     def _validate_table(self, table_name: str) -> None:
         if table_name not in TABLE_TO_ENTITY:
@@ -416,12 +445,13 @@ class QuickBooksLakeflowConnect(LakeflowConnect):
             )
 
 
-def _normalize_entity(table_name: str, row: dict) -> dict:
+def _normalize_entity(table_name: str, row: dict, *, realm_id: str) -> dict:
     entity_id = row.get("Id")
     if entity_id in {None, ""}:
         raise RuntimeError("QuickBooks entity is missing Id")
     metadata = row.get("MetaData") if isinstance(row.get("MetaData"), dict) else {}
     common = {
+        "realm_id": realm_id,
         "id": str(entity_id),
         "sync_token": _optional_string(row.get("SyncToken")),
         "created_at": _optional_datetime(metadata.get("CreateTime")),
@@ -439,15 +469,15 @@ def _normalize_entity(table_name: str, row: dict) -> dict:
     return common | normalizers[table_name](row)
 
 
-def _normalize_cdc_entity(table_name: str, row: dict) -> dict:
-    record = _normalize_entity(table_name, row)
+def _normalize_cdc_entity(table_name: str, row: dict, *, realm_id: str) -> dict:
+    record = _normalize_entity(table_name, row, realm_id=realm_id)
     if record[CURSOR_FIELD] is None:
         entity = TABLE_TO_ENTITY[table_name]
         raise RuntimeError(f"QuickBooks {entity} is missing MetaData.LastUpdatedTime")
     return record
 
 
-def _normalize_delete_entity(table_name: str, row: dict) -> dict:
+def _normalize_delete_entity(table_name: str, row: dict, *, realm_id: str) -> dict:
     """Build a schema-complete tombstone from QuickBooks' minimal delete body."""
     entity_id = row.get("Id")
     if entity_id in {None, ""}:
@@ -460,6 +490,7 @@ def _normalize_delete_entity(table_name: str, row: dict) -> dict:
     tombstone = {field.name: None for field in TABLE_SCHEMAS[table_name].fields}
     tombstone.update(
         {
+            "realm_id": realm_id,
             "id": str(entity_id),
             "sync_token": _optional_string(row.get("SyncToken")),
             CURSOR_FIELD: last_updated_at,
@@ -643,19 +674,50 @@ def _parse_qbo_datetime(value: str) -> datetime:
     return parsed.astimezone(timezone.utc)
 
 
-def _offset(updated_through: str) -> dict:
+def _offset(
+    updated_through: str,
+    *,
+    realm_id: str,
+    table_name: str,
+    flow: str,
+) -> dict:
     return {
         OFFSET_VERSION_KEY: OFFSET_VERSION,
+        OFFSET_REALM_KEY: realm_id,
+        OFFSET_TABLE_KEY: table_name,
+        OFFSET_FLOW_KEY: flow,
         OFFSET_CURSOR_KEY: updated_through,
     }
 
 
-def _parse_offset(start_offset: dict) -> str | None:
+def _parse_offset(
+    start_offset: dict,
+    *,
+    expected_realm_id: str,
+    expected_table_name: str,
+    expected_flow: str,
+) -> str | None:
     if not start_offset:
         return None
     if start_offset.get(OFFSET_VERSION_KEY) != OFFSET_VERSION:
         raise ValueError(
             f"Unsupported QuickBooks offset version: {start_offset.get(OFFSET_VERSION_KEY)!r}"
+        )
+    realm_id = start_offset.get(OFFSET_REALM_KEY)
+    if realm_id != expected_realm_id:
+        raise ValueError(
+            "QuickBooks offset realm_id does not match the configured Unity Catalog "
+            "connection; reset the pipeline checkpoint only after validating the tenant"
+        )
+    if start_offset.get(OFFSET_TABLE_KEY) != expected_table_name:
+        raise ValueError(
+            "QuickBooks offset table_name does not match the requested table; "
+            "check the pipeline's checkpoint isolation"
+        )
+    if start_offset.get(OFFSET_FLOW_KEY) != expected_flow:
+        raise ValueError(
+            "QuickBooks offset flow does not match the requested update/delete flow; "
+            "check the pipeline's checkpoint isolation"
         )
     cursor = start_offset.get(OFFSET_CURSOR_KEY)
     if not isinstance(cursor, str) or not cursor:

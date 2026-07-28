@@ -6,7 +6,7 @@ objects:
       source_table: customers
       table_configuration: &cdc_configuration
         scd_type: SCD_TYPE_1
-        primary_keys: [id]
+        primary_keys: [realm_id, id]
         sequence_by: last_updated_at
         incremental_overlap_seconds: "60"
         max_incremental_window_seconds: "86400"

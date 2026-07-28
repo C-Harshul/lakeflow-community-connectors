@@ -1,5 +1,5 @@
-# M4 pipeline: list entities retain inactive rows; Invoice and Bill use a
-# second Lakeflow delete flow backed by the QuickBooks CDC endpoint.
+# M5 tenant-isolated pipeline. Use a different connection, pipeline, Job, and
+# destination schema for every QuickBooks realm.
 connection_name: quickbooks_sandbox
 objects:
   - table:

@@ -47,12 +47,15 @@ amplify API throttling.
 
 ## Implemented M3 incremental design
 
-Each table has an independent versioned offset containing its committed source
-watermark:
+Each table has an independent versioned offset containing its tenant binding,
+flow identity, and committed source watermark:
 
 ```json
 {
-  "version": 1,
+  "version": 2,
+  "realm_id": "1234567890",
+  "table_name": "customers",
+  "flow": "updates",
   "updated_through": "2026-07-25T10:00:00Z"
 }
 ```
@@ -128,4 +131,29 @@ these conditions.
 - Decide whether `raw_json` should become `VARIANT` before public release.
 - Decide which QuickBooks entities require specialized typed schemas.
 - Automate the full-reconciliation runbook for expired or saturated delete
-  checkpoints.
+checkpoints.
+
+## Implemented M5 tenant-isolation design
+
+Every normalized row and delete tombstone carries a non-null `realm_id`.
+Lakeflow metadata and pipeline specifications use `(realm_id, id)` as the
+composite primary key. QuickBooks IDs only have meaning inside one company, so
+this prevents identical source IDs in different realms from colliding in a
+shared destination.
+
+Production deployments still use a separate schema, secret scope, Unity
+Catalog connection, refresh-then-ingest Job, pipeline, and checkpoint location
+per realm. The composite key is defense in depth and permits intentional
+consolidation; it does not replace Unity Catalog authorization.
+
+Version-2 offsets bind state to the realm, table, and update/delete flow. The
+connector rejects a checkpoint if any binding differs. The refresh task also
+requires an `expected_realm_id` Job parameter and compares it to the secret
+scope plus a SHA-256 realm-binding marker in the existing connection comment
+before rotating a token. The marker is necessary because Databricks redacts
+COMMUNITY connection options on reads.
+
+M4 offsets are version 1 and cannot be adopted implicitly. Migration uses a new
+schema and pipeline bootstrap rather than mutating an existing checkpoint.
+See `TENANT_OPERATIONS.md` for onboarding, revocation, permissions, and
+retention procedures.

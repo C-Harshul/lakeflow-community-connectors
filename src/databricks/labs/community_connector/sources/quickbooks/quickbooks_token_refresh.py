@@ -7,6 +7,7 @@ Unity Catalog connection receives only the short-lived access token.
 
 from __future__ import annotations
 
+import hashlib
 from typing import Callable
 from urllib.parse import quote
 
@@ -14,6 +15,34 @@ import requests
 
 TOKEN_ENDPOINT = "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer"
 DEFAULT_TIMEOUT_SECONDS = 30
+TENANT_BINDING_PREFIX = "quickbooks-realm-sha256:"
+
+
+def tenant_binding_comment(realm_id: str) -> str:
+    """Return a non-reversible connection marker for one QuickBooks realm."""
+    digest = hashlib.sha256(realm_id.encode("utf-8")).hexdigest()
+    return f"{TENANT_BINDING_PREFIX}{digest}"
+
+
+def validate_tenant_binding(
+    *,
+    expected_realm_id: str,
+    secret_realm_id: str,
+    connection_comment: str,
+) -> None:
+    """Fail before token rotation if a Job, secret scope, and connection differ."""
+    if not expected_realm_id:
+        raise ValueError("expected_realm_id is required for tenant-isolated refresh")
+    if secret_realm_id != expected_realm_id:
+        raise RuntimeError(
+            "QuickBooks tenant binding failed: the secret scope realm_id does not "
+            "match this Job's expected_realm_id"
+        )
+    if connection_comment != tenant_binding_comment(expected_realm_id):
+        raise RuntimeError(
+            "QuickBooks tenant binding failed: the Unity Catalog connection binding "
+            "does not match this Job's expected_realm_id"
+        )
 
 
 def exchange_refresh_token(
@@ -78,8 +107,27 @@ def run_refresh_task(dbutils) -> None:
 
     secret_scope = dbutils.widgets.get("secret_scope")
     connection_name = dbutils.widgets.get("connection_name")
+    expected_realm_id = dbutils.widgets.get("expected_realm_id").strip()
     environment = dbutils.widgets.get("environment")
     minor_version = dbutils.widgets.get("minor_version")
+
+    realm_id = dbutils.secrets.get(
+        scope=secret_scope,
+        key="realm_id",
+    )
+
+    workspace = WorkspaceClient()
+    connection = workspace.api_client.do(
+        "GET",
+        (f"/api/2.1/unity-catalog/connections/{quote(connection_name, safe='')}"),
+    )
+    if not isinstance(connection, dict) or not isinstance(connection.get("comment"), str):
+        raise RuntimeError("Unity Catalog connection is missing its QuickBooks tenant binding")
+    validate_tenant_binding(
+        expected_realm_id=expected_realm_id,
+        secret_realm_id=realm_id,
+        connection_comment=connection["comment"],
+    )
 
     client_id = dbutils.secrets.get(
         scope=secret_scope,
@@ -93,18 +141,12 @@ def run_refresh_task(dbutils) -> None:
         scope=secret_scope,
         key="refresh_token",
     )
-    realm_id = dbutils.secrets.get(
-        scope=secret_scope,
-        key="realm_id",
-    )
-
     access_token, next_refresh_token = exchange_refresh_token(
         client_id,
         client_secret,
         refresh_token,
     )
 
-    workspace = WorkspaceClient()
     # Persist Intuit's rotated token before updating the connection. If the
     # connection update fails, the next task run can still retry safely.
     workspace.secrets.put_secret(
@@ -123,6 +165,7 @@ def run_refresh_task(dbutils) -> None:
         (f"/api/2.1/unity-catalog/connections/{quote(connection_name, safe='')}"),
         body={
             "name": connection_name,
+            "comment": connection["comment"],
             "options": options,
         },
     )

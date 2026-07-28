@@ -50,12 +50,12 @@ tie-breaker.
 
 | Lakeflow table | QuickBooks entity | Primary key | Initial mode |
 |---|---|---|---|
-| customers | Customer | Id | cdc (inserts, updates, inactive rows) |
-| vendors | Vendor | Id | cdc (inserts, updates, inactive rows) |
-| accounts | Account | Id | cdc (inserts, updates, inactive rows) |
-| items | Item | Id | cdc (inserts, updates, inactive rows) |
-| invoices | Invoice | Id | cdc_with_deletes |
-| bills | Bill | Id | cdc_with_deletes |
+| customers | Customer | realm_id + Id | cdc (inserts, updates, inactive rows) |
+| vendors | Vendor | realm_id + Id | cdc (inserts, updates, inactive rows) |
+| accounts | Account | realm_id + Id | cdc (inserts, updates, inactive rows) |
+| items | Item | realm_id + Id | cdc (inserts, updates, inactive rows) |
+| invoices | Invoice | realm_id + Id | cdc_with_deletes |
+| bills | Bill | realm_id + Id | cdc_with_deletes |
 
 ## Incremental status
 

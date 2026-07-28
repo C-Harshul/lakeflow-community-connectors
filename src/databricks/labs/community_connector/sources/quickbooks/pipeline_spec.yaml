@@ -6,29 +6,29 @@ objects:
       source_table: customers
       table_configuration:
         scd_type: SCD_TYPE_1
-        primary_keys: [id]
+        primary_keys: [realm_id, id]
   - table:
       source_table: vendors
       table_configuration:
         scd_type: SCD_TYPE_1
-        primary_keys: [id]
+        primary_keys: [realm_id, id]
   - table:
       source_table: accounts
       table_configuration:
         scd_type: SCD_TYPE_1
-        primary_keys: [id]
+        primary_keys: [realm_id, id]
   - table:
       source_table: items
       table_configuration:
         scd_type: SCD_TYPE_1
-        primary_keys: [id]
+        primary_keys: [realm_id, id]
   - table:
       source_table: invoices
       table_configuration:
         scd_type: SCD_TYPE_1
-        primary_keys: [id]
+        primary_keys: [realm_id, id]
   - table:
       source_table: bills
       table_configuration:
         scd_type: SCD_TYPE_1
-        primary_keys: [id]
+        primary_keys: [realm_id, id]

@@ -38,6 +38,7 @@ class TestQuickBooksConnector(LakeflowConnectTests):
             assert all(
                 str(json.loads(record["raw_json"])["Id"]) == record["id"] for record in records
             ), f"{table} raw payload does not preserve the source ID"
+            assert all(record["realm_id"] == "simulator-realm" for record in records)
 
     def test_inactive_list_entities_are_not_filtered(self) -> None:
         for table in ("customers", "vendors", "accounts", "items"):
@@ -60,7 +61,10 @@ class TestQuickBooksConnector(LakeflowConnectTests):
             records, _ = self.connector.read_table(
                 table,
                 {
-                    "version": 1,
+                    "version": 2,
+                    "realm_id": "simulator-realm",
+                    "table_name": table,
+                    "flow": "updates",
                     "updated_through": cursor,
                 },
                 {

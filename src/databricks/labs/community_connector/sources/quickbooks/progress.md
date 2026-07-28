@@ -4,6 +4,52 @@ Keep entries most-recent-first. Record reproducible evidence and blockers, but
 never credentials, access tokens, refresh tokens, client secrets, or customer
 payloads.
 
+## 2026-07-28 — M5 tenant isolation implemented and live-tested
+
+- Added non-null `realm_id` to every table schema, normalized row, and delete
+  tombstone. Lakeflow metadata and all pipeline specifications now use
+  `(realm_id, id)` as the composite primary key.
+- Upgraded offsets to version 2. Every update/delete checkpoint is bound to
+  `realm_id`, table name, flow name, and `updated_through`; cross-realm,
+  cross-table, and cross-flow state is rejected before an API request.
+- Added refresh-time tenant binding. Each Job supplies `expected_realm_id`,
+  which must match the secret scope and the connection's non-reversible
+  `quickbooks-realm-sha256:` comment before token rotation.
+- Added offline proof that identical QuickBooks IDs in two realms have
+  distinct destination keys, a failed tenant reader does not affect another
+  connector instance, and a rejected refresh binding does not affect another
+  tenant binding.
+- Added `pipeline_spec.multi_tenant.yaml` and `TENANT_OPERATIONS.md`, covering
+  separate per-realm secret scopes, connections, Jobs, pipelines, schemas,
+  permissions, onboarding, revocation, version-1 migration, and retention.
+- Offline QuickBooks suite: 78 passed and 1 expected skip. Focused Ruff,
+  pipeline-spec validation, and `git diff --check` pass.
+- Created isolated schema `workspace.quickbooks_m5_tenant_isolation`,
+  serverless pipeline `quickbooks_six_table_m5_tenant_isolation`
+  (`7ee521a1-9065-4567-aea2-424e19275757`), and refresh-first Job
+  `quickbooks_six_table_m5_tenant_isolation_with_token_refresh`
+  (`920407647339047`).
+- Bootstrap Job run `441799907318474` and pipeline update
+  `7899e956-f8da-49f2-a1d0-6e58a2107f3e` succeeded. The tenant-binding refresh
+  task completed before ingestion.
+- Checkpoint-resume Job run `953208668298466` and pipeline update
+  `a9cb7780-e4ef-4438-bb69-9ab9fb9d3a68` also succeeded, proving the deployed
+  version-2 checkpoint chain resumes normally.
+- Both post-run validations found row counts equal to distinct composite-key
+  counts and zero missing or unexpected realms:
+  - accounts: 91
+  - bills: 85
+  - customers: 33
+  - invoices: 42
+  - items: 23
+  - vendors: 74
+- A second live QuickBooks realm and second tenant principal are not available
+  in this workspace. Cross-realm collision, refresh rejection, and independent
+  failure behavior are covered offline; cross-tenant Unity Catalog permission
+  acceptance remains an external validation item.
+- The temporary SQL warehouse was stopped after validation. M1 through M4
+  pipelines and destination schemas were not modified.
+
 ## 2026-07-27 — M4 deletions and inactive records accepted
 
 - Defined QuickBooks removal semantics per entity. Customer, Vendor, Account,
@@ -367,16 +413,16 @@ payloads.
 
 ### M5 — multi-tenant isolation
 
-- [ ] Enforce one QuickBooks `realm_id` per Unity Catalog connection
-- [ ] Provision separate credential and refresh-token chains per tenant
-- [ ] Isolate destination schemas or use `realm_id` in every shared primary key
-- [ ] Isolate checkpoints by realm and table
-- [ ] Prove identical QuickBooks IDs in two realms cannot collide
-- [ ] Prove refreshing or revoking one tenant cannot affect another tenant
-- [ ] Prove one tenant's ingestion failure does not block another tenant
+- [x] Enforce one QuickBooks `realm_id` per Unity Catalog connection
+- [x] Provision separate credential and refresh-token chains per tenant
+- [x] Isolate destination schemas or use `realm_id` in every shared primary key
+- [x] Isolate checkpoints by realm and table
+- [x] Prove identical QuickBooks IDs in two realms cannot collide
+- [x] Prove refreshing or revoking one tenant cannot affect another tenant
+- [x] Prove one tenant's ingestion failure does not block another tenant
 - [ ] Validate Unity Catalog, secret-scope, Job, schema, and table permissions
-      across tenants
-- [ ] Document repeatable tenant onboarding, revocation, and data-retention
+      across two live tenant principals
+- [x] Document repeatable tenant onboarding, revocation, and data-retention
       procedures
 
 ### M6 — partitioned ingestion and performance

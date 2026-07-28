@@ -28,6 +28,21 @@ def _options(**overrides: str) -> dict[str, str]:
     }
 
 
+def _checkpoint(
+    updated_through: str,
+    realm_id: str = "realm",
+    table_name: str = "customers",
+    flow: str = "updates",
+) -> dict:
+    return {
+        "version": 2,
+        "realm_id": realm_id,
+        "table_name": table_name,
+        "flow": flow,
+        "updated_through": updated_through,
+    }
+
+
 def _response(status: int, payload: object | None = None, **headers: str) -> Mock:
     response = Mock(spec=requests.Response)
     response.status_code = status
@@ -68,6 +83,7 @@ def test_table_discovery_and_specialized_schemas() -> None:
     assert "quantity_on_hand" in connector.get_table_schema("items", {}).fieldNames()
     assert "customer_ref" in connector.get_table_schema("invoices", {}).fieldNames()
     assert "vendor_ref" in connector.get_table_schema("bills", {}).fieldNames()
+    assert connector.get_table_schema("customers", {})["realm_id"].nullable is False
 
 
 def test_table_metadata_distinguishes_inactivation_from_hard_deletes() -> None:
@@ -75,16 +91,57 @@ def test_table_metadata_distinguishes_inactivation_from_hard_deletes() -> None:
 
     for table in ("customers", "vendors", "accounts", "items"):
         assert connector.read_table_metadata(table, {}) == {
-            "primary_keys": ["id"],
+            "primary_keys": ["realm_id", "id"],
             "cursor_field": "last_updated_at",
             "ingestion_type": "cdc",
         }
     for table in ("invoices", "bills"):
         assert connector.read_table_metadata(table, {}) == {
-            "primary_keys": ["id"],
+            "primary_keys": ["realm_id", "id"],
             "cursor_field": "last_updated_at",
             "ingestion_type": "cdc_with_deletes",
         }
+
+
+def test_identical_source_ids_in_two_realms_have_distinct_composite_keys() -> None:
+    source_row = {
+        "Id": "1",
+        "MetaData": {"LastUpdatedTime": "2026-07-26T12:00:00Z"},
+    }
+
+    realm_a = _normalize_entity("customers", source_row, realm_id="realm-a")
+    realm_b = _normalize_entity("customers", source_row, realm_id="realm-b")
+
+    assert (realm_a["realm_id"], realm_a["id"]) == ("realm-a", "1")
+    assert (realm_b["realm_id"], realm_b["id"]) == ("realm-b", "1")
+    assert (realm_a["realm_id"], realm_a["id"]) != (realm_b["realm_id"], realm_b["id"])
+
+
+def test_one_tenant_ingestion_failure_does_not_affect_another_tenant() -> None:
+    tenant_a = QuickBooksLakeflowConnect(_options(realm_id="realm-a"))
+    tenant_b = QuickBooksLakeflowConnect(_options(realm_id="realm-b"))
+    tenant_a._client.iter_entity = Mock(  # noqa: SLF001
+        return_value=iter([{"Id": "1"}])
+    )
+    tenant_b._client.iter_entity = Mock(  # noqa: SLF001
+        return_value=iter(
+            [
+                {
+                    "Id": "1",
+                    "MetaData": {"LastUpdatedTime": "2026-07-26T12:00:00Z"},
+                }
+            ]
+        )
+    )
+
+    failed_records, _ = tenant_a.read_table("customers", {}, {})
+    with pytest.raises(RuntimeError, match="LastUpdatedTime"):
+        list(failed_records)
+
+    healthy_records, _ = tenant_b.read_table("customers", {}, {})
+    assert [(row["realm_id"], row["id"]) for row in healthy_records] == [
+        ("realm-b", "1")
+    ]
 
 
 @pytest.mark.parametrize("table,entity", quickbooks_module.TABLE_TO_ENTITY.items())
@@ -123,10 +180,8 @@ def test_all_tables_use_versioned_snapshot_to_incremental_handoff(
 
     snapshot_records, snapshot_offset = connector.read_table(table, {}, {})
     assert [record["id"] for record in snapshot_records] == ["1"]
-    assert snapshot_offset == {
-        "version": 1,
-        "updated_through": "2026-07-26T12:30:00Z",
-    }
+    assert snapshot_offset == _checkpoint("2026-07-26T12:30:00Z", table_name=table)
+    assert all(record["realm_id"] == "realm" for record in snapshot_records)
     snapshot_query = get.call_args_list[0].kwargs["params"]["query"]
     assert f"SELECT * FROM {entity}" in snapshot_query
     if table in quickbooks_module.LIST_TABLES:
@@ -136,10 +191,7 @@ def test_all_tables_use_versioned_snapshot_to_incremental_handoff(
 
     incremental_records, incremental_offset = connector.read_table(
         table,
-        {
-            "version": 1,
-            "updated_through": "2026-07-26T11:30:00Z",
-        },
+        _checkpoint("2026-07-26T11:30:00Z", table_name=table),
         {"incremental_overlap_seconds": "60"},
     )
     assert list(incremental_records) == []
@@ -180,10 +232,7 @@ def test_customer_first_read_is_snapshot_with_versioned_boundary(
     records, end_offset = connector.read_table("customers", {}, {"page_size": "10"})
 
     assert [record["id"] for record in records] == ["1"]
-    assert end_offset == {
-        "version": 1,
-        "updated_through": "2026-07-26T12:30:00Z",
-    }
+    assert end_offset == _checkpoint("2026-07-26T12:30:00Z")
     assert "WHERE Active IN (true, false)" in get.call_args.kwargs["params"]["query"]
 
     records, repeated_offset = connector.read_table(
@@ -223,10 +272,7 @@ def test_customer_incremental_read_uses_overlap_and_bounded_upper_time(
     )
     monkeypatch.setattr(requests, "get", get)
     connector = QuickBooksLakeflowConnect(_options())
-    start_offset = {
-        "version": 1,
-        "updated_through": "2026-07-25T11:30:00Z",
-    }
+    start_offset = _checkpoint("2026-07-25T11:30:00Z")
 
     records, end_offset = connector.read_table(
         "customers",
@@ -239,10 +285,7 @@ def test_customer_incremental_read_uses_overlap_and_bounded_upper_time(
     )
 
     assert [record["id"] for record in records] == ["2"]
-    assert end_offset == {
-        "version": 1,
-        "updated_through": "2026-07-25T12:30:00Z",
-    }
+    assert end_offset == _checkpoint("2026-07-25T12:30:00Z")
     query = get.call_args.kwargs["params"]["query"]
     assert "MetaData.LastUpdatedTime >= '2026-07-25T11:29:00Z'" in query
     assert "MetaData.LastUpdatedTime <= '2026-07-25T12:30:00Z'" in query
@@ -260,10 +303,7 @@ def test_customer_incremental_replay_is_deterministic(
     get = Mock(return_value=response)
     monkeypatch.setattr(requests, "get", get)
     connector = QuickBooksLakeflowConnect(_options())
-    start_offset = {
-        "version": 1,
-        "updated_through": "2026-07-26T10:30:00Z",
-    }
+    start_offset = _checkpoint("2026-07-26T10:30:00Z")
 
     first_records, first_offset = connector.read_table("customers", start_offset, {})
     second_records, second_offset = connector.read_table("customers", start_offset, {})
@@ -293,10 +333,7 @@ def test_customer_incremental_failure_replays_from_same_offset(
     )
     monkeypatch.setattr(requests, "get", get)
     connector = QuickBooksLakeflowConnect(_options())
-    start_offset = {
-        "version": 1,
-        "updated_through": "2026-07-26T10:30:00Z",
-    }
+    start_offset = _checkpoint("2026-07-26T10:30:00Z")
 
     failed_records, failed_end_offset = connector.read_table("customers", start_offset, {})
     with pytest.raises(RuntimeError, match="LastUpdatedTime"):
@@ -316,9 +353,28 @@ def test_customer_incremental_failure_replays_from_same_offset(
     "offset,match",
     [
         ({"updated_through": "2026-07-26T10:00:00Z"}, "version"),
-        ({"version": 2, "updated_through": "2026-07-26T10:00:00Z"}, "version"),
-        ({"version": 1}, "updated_through"),
-        ({"version": 1, "updated_through": "not-a-time"}, "timestamp"),
+        (
+            {
+                "version": 99,
+                "realm_id": "realm",
+                "updated_through": "2026-07-26T10:00:00Z",
+            },
+            "version",
+        ),
+        ({"version": 2, "updated_through": "2026-07-26T10:00:00Z"}, "realm_id"),
+        (_checkpoint("2026-07-26T10:00:00Z", realm_id="other"), "realm_id"),
+        (_checkpoint("2026-07-26T10:00:00Z", table_name="vendors"), "table_name"),
+        (_checkpoint("2026-07-26T10:00:00Z", flow="deletes"), "flow"),
+        (
+            {
+                "version": 2,
+                "realm_id": "realm",
+                "table_name": "customers",
+                "flow": "updates",
+            },
+            "updated_through",
+        ),
+        (_checkpoint("not-a-time"), "timestamp"),
     ],
 )
 def test_customer_offset_validation(offset: dict, match: str) -> None:
@@ -363,10 +419,7 @@ def test_customer_incremental_option_validation(
     match: str,
 ) -> None:
     connector = QuickBooksLakeflowConnect(_options())
-    start_offset = {
-        "version": 1,
-        "updated_through": "2026-07-20T10:00:00Z",
-    }
+    start_offset = _checkpoint("2026-07-20T10:00:00Z")
 
     with pytest.raises(ValueError, match=match):
         connector.read_table("customers", start_offset, options)
@@ -531,15 +584,17 @@ def test_transaction_delete_read_emits_schema_complete_tombstone(
     assert len(tombstones) == 1
     assert set(tombstones[0]) == set(connector.get_table_schema(table, {}).fieldNames())
     assert tombstones[0]["id"] == "deleted-1"
+    assert tombstones[0]["realm_id"] == "realm"
     assert tombstones[0]["sync_token"] == "4"
     assert tombstones[0]["last_updated_at"] == datetime.fromisoformat(
         "2026-07-26T12:29:30+00:00"
     )
     assert tombstones[0]["raw_json"]
-    assert end_offset == {
-        "version": 1,
-        "updated_through": "2026-07-26T12:30:01Z",
-    }
+    assert end_offset == _checkpoint(
+        "2026-07-26T12:30:01Z",
+        table_name=table,
+        flow="deletes",
+    )
     assert get.call_args.kwargs["params"]["changedSince"] == "2026-07-26T12:25:00Z"
 
 
@@ -559,10 +614,11 @@ def test_delete_replay_is_deterministic(monkeypatch: pytest.MonkeyPatch) -> None
     get = Mock(return_value=response)
     monkeypatch.setattr(requests, "get", get)
     connector = QuickBooksLakeflowConnect(_options())
-    start_offset = {
-        "version": 1,
-        "updated_through": "2026-07-26T12:00:00Z",
-    }
+    start_offset = _checkpoint(
+        "2026-07-26T12:00:00Z",
+        table_name="invoices",
+        flow="deletes",
+    )
 
     first_records, first_offset = connector.read_table_deletes(
         "invoices", start_offset, {}
@@ -596,10 +652,11 @@ def test_delete_checkpoint_older_than_cdc_horizon_fails_closed(
     with pytest.raises(RuntimeError, match="previous 30 days"):
         connector.read_table_deletes(
             "invoices",
-            {
-                "version": 1,
-                "updated_through": "2026-06-20T12:30:00Z",
-            },
+            _checkpoint(
+                "2026-06-20T12:30:00Z",
+                table_name="invoices",
+                flow="deletes",
+            ),
             {},
         )
     get.assert_not_called()
@@ -655,9 +712,14 @@ def test_delete_tombstone_requires_id_and_cursor() -> None:
                 "status": "Deleted",
                 "MetaData": {"LastUpdatedTime": "2026-07-26T12:00:00Z"},
             },
+            realm_id="realm",
         )
     with pytest.raises(RuntimeError, match="LastUpdatedTime"):
-        _normalize_delete_entity("invoices", {"Id": "1", "status": "Deleted"})
+        _normalize_delete_entity(
+            "invoices",
+            {"Id": "1", "status": "Deleted"},
+            realm_id="realm",
+        )
 
 
 @pytest.mark.parametrize("status", [401, 403])
@@ -750,7 +812,9 @@ def test_customer_decimal_timestamp_and_raw_payload() -> None:
                 "LastUpdatedTime": "2026-07-21T11:30:00+00:00",
             },
         },
+        realm_id="realm",
     )
+    assert record["realm_id"] == "realm"
     assert record["balance"] == Decimal("12.340")
     assert record["created_at"] == datetime.fromisoformat("2026-07-20T10:00:00+00:00")
     assert record["active"] is False
@@ -767,6 +831,7 @@ def test_transaction_dates_and_lines() -> None:
             "TotalAmt": 10.25,
             "Line": [{"Id": "1"}],
         },
+        realm_id="realm",
     )
     assert record["txn_date"] == "2026-07-01"
     assert record["due_date"] == "2026-07-31"

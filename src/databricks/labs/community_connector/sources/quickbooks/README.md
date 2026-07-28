@@ -22,6 +22,11 @@ Implemented:
 - Replay-safe Invoice and Bill hard-delete tombstones through QuickBooks CDC.
 - Fail-closed protection for QuickBooks CDC's 30-day horizon and 1,000-object
   response ceiling.
+- Non-null `realm_id` on every row and tombstone, with `(realm_id, id)` as the
+  composite destination key.
+- Version-2 checkpoints bound to realm, table, and update/delete flow.
+- Refresh-time tenant binding across the Job, secret scope, and Unity Catalog
+  connection.
 
 Validation available:
 
@@ -51,6 +56,10 @@ Validation available:
 - `pipeline_spec.all_tables_cdc.yaml` for six-table M3 CDC ingestion.
 - `pipeline_spec.all_tables_cdc_deletes.yaml` for M4 update, inactivation, and
   hard-delete ingestion.
+- `pipeline_spec.multi_tenant.yaml` for the M5 tenant-isolated deployment
+  pattern.
+- `TENANT_OPERATIONS.md` for onboarding, permissions, revocation, migration,
+  and retention.
 
 Not implemented or externally validated yet:
 
@@ -81,7 +90,16 @@ the refresh-then-ingest Lakeflow Job. Its first task reads OAuth credentials
 from a Databricks secret scope, requests a fresh access token, persists
 Intuit's rotated refresh token, and updates the static COMMUNITY connection.
 The pipeline task runs only after that refresh succeeds. Do not schedule the
-pipeline directly when using this mode.
+pipeline directly when using this mode. Each tenant Job must also pass
+`expected_realm_id`; refresh stops before token rotation if that value differs
+from either the tenant's secret scope or the connection's SHA-256 realm-binding
+comment.
+
+Use a separate secret scope, connection, Job, pipeline, destination schema, and
+checkpoint chain for every QuickBooks realm. Tables additionally use
+`(realm_id, id)` so identical QuickBooks IDs cannot collide. Existing M4
+pipelines have version-1 checkpoints; migrate by bootstrapping a new M5
+pipeline rather than updating them in place.
 
 ## Table options
 
@@ -122,4 +140,8 @@ community-connector create_pipeline quickbooks quickbooks_six_table_m3_cdc \
 community-connector create_pipeline quickbooks quickbooks_six_table_m4_deletes \
   --pipeline-spec \
   src/databricks/labs/community_connector/sources/quickbooks/pipeline_spec.all_tables_cdc_deletes.yaml
+
+community-connector create_pipeline quickbooks quickbooks_tenant_m5 \
+  --pipeline-spec \
+  src/databricks/labs/community_connector/sources/quickbooks/pipeline_spec.multi_tenant.yaml
 ```
