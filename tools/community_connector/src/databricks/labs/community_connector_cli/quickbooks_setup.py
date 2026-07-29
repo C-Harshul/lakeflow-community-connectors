@@ -313,10 +313,8 @@ def validate_quickbooks_company_access(
     except ValueError as exc:
         raise RuntimeError("QuickBooks company verification returned invalid JSON") from exc
     company = payload.get("CompanyInfo") if isinstance(payload, dict) else None
-    if not isinstance(company, dict) or str(company.get("Id", "")) != tokens.realm_id:
-        raise RuntimeError(
-            "QuickBooks company verification returned a different or missing company ID"
-        )
+    if not isinstance(company, dict):
+        raise RuntimeError("QuickBooks company verification omitted CompanyInfo")
 
 
 def build_job_settings(

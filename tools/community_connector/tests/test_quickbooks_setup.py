@@ -199,7 +199,8 @@ def test_authorize_quickbooks_resolves_missing_realm_interactively():
 
 def test_company_access_validation_proves_token_realm_pair():
     response = MagicMock(status_code=200)
-    response.json.return_value = {"CompanyInfo": {"Id": "123456789"}}
+    # CompanyInfo.Id is an entity identifier and need not equal the realm ID.
+    response.json.return_value = {"CompanyInfo": {"Id": "1", "CompanyName": "Sandbox"}}
     get = MagicMock(return_value=response)
 
     validate_quickbooks_company_access(
@@ -215,6 +216,19 @@ def test_company_access_validation_proves_token_realm_pair():
     )
     assert get.call_args.kwargs["params"] == {"minorversion": "75"}
     assert get.call_args.kwargs["headers"]["Authorization"] == "Bearer access"
+
+
+def test_company_access_validation_requires_company_info_payload():
+    response = MagicMock(status_code=200)
+    response.json.return_value = {"time": "2026-07-29T00:00:00Z"}
+
+    with pytest.raises(RuntimeError, match="omitted CompanyInfo"):
+        validate_quickbooks_company_access(
+            tokens=QuickBooksOAuthTokens("access", "refresh", "123456789"),
+            environment="sandbox",
+            minor_version="75",
+            get=MagicMock(return_value=response),
+        )
 
 
 def test_company_access_validation_rejects_wrong_realm_without_payload_leak():

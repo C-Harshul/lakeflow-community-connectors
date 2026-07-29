@@ -32,6 +32,10 @@ payloads.
   Setup asks for the numeric sandbox `companyId`, then verifies the issued
   access token against that realm's CompanyInfo endpoint before any Databricks
   mutation; a mistyped or cross-company realm therefore fails closed.
+- Corrected CompanyInfo verification after fresh-workspace acceptance exposed
+  that `CompanyInfo.Id` is an entity identifier and need not equal the realm
+  in the API path. A successful realm-scoped response containing CompanyInfo
+  now proves access; wrong realms still fail through the API status.
 - The connector's generated single-file Spark source is rebuilt before upload,
   preventing a workspace deployment from accidentally using stale code.
 - Added focused tests for dynamic naming, composite keys/delete options, OAuth
