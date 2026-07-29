@@ -36,6 +36,11 @@ payloads.
   that `CompanyInfo.Id` is an entity identifier and need not equal the realm
   in the API path. A successful realm-scoped response containing CompanyInfo
   now proves access; wrong realms still fail through the API status.
+- Fixed nested pipeline deployment to reuse the workspace client authenticated
+  by `setup_quickbooks`. Fresh-workspace testing exposed that invoking the
+  generic pipeline command created a second client and fell back to an expired
+  `DEFAULT` profile after the scope, connection, and schema were provisioned.
+  Reruns now continue idempotently in the explicitly selected workspace.
 - The connector's generated single-file Spark source is rebuilt before upload,
   preventing a workspace deployment from accidentally using stale code.
 - Added focused tests for dynamic naming, composite keys/delete options, OAuth

@@ -5,7 +5,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
-from databricks.labs.community_connector_cli.cli import main
+from databricks.labs.community_connector_cli.cli import (
+    _deploy_or_update_quickbooks_pipeline,
+    create_pipeline,
+    main,
+)
 from databricks.labs.community_connector_cli.quickbooks_setup import (
     QUICKBOOKS_TABLES,
     QuickBooksOAuthTokens,
@@ -403,3 +407,25 @@ def test_cli_reports_expired_databricks_profile_without_a_traceback():
     assert "databricks auth login --profile expired-profile" in result.output
     assert "sensitive SDK" not in result.output
     assert "Traceback" not in result.output
+
+
+def test_pipeline_deployment_reuses_setup_workspace_client():
+    context = MagicMock()
+    workspace = MagicMock()
+
+    with patch(
+        "databricks.labs.community_connector_cli.cli._find_exact_pipeline_by_name",
+        side_effect=[None, "pipeline-123"],
+    ):
+        pipeline_id = _deploy_or_update_quickbooks_pipeline(
+            context,
+            workspace_client=workspace,
+            plan=_plan(),
+            pipeline_spec_path="/tmp/spec.yaml",
+            deployment_config_path="/tmp/deployment.yaml",
+            repo_url=None,
+        )
+
+    assert pipeline_id == "pipeline-123"
+    assert context.invoke.call_args.args[0] is create_pipeline
+    assert context.invoke.call_args.kwargs["_workspace_client"] is workspace

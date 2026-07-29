@@ -1504,6 +1504,7 @@ def create_pipeline(
     schema: Optional[str],
     package_paths: tuple,
     use_local_source: bool,
+    _workspace_client=None,
 ):
     """
     Create a community connector pipeline.
@@ -1559,7 +1560,7 @@ def create_pipeline(
         click.echo(f"[DEBUG] Repo config: {repo_config}")
         click.echo(f"[DEBUG] Pipeline config: {pipeline_config}")
 
-    workspace_client = _make_workspace_client()
+    workspace_client = _workspace_client or _make_workspace_client()
     current_user = workspace_client.current_user.me()
     workspace_path = _resolve_workspace_paths(
         workspace_path, repo_config, pipeline_config, current_user.user_name
@@ -2075,6 +2076,7 @@ def _deploy_or_update_quickbooks_pipeline(
             schema=plan.names.schema,
             package_paths=(),
             use_local_source=True,
+            _workspace_client=workspace_client,
         )
         created_pipeline_id = _find_exact_pipeline_by_name(
             workspace_client,
