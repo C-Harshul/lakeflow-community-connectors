@@ -239,9 +239,21 @@ def authorize_quickbooks(
         echo=echo,
         callback_params_out=callback_params,
     )
-    realm_id = callback_params.get("realmId", "").strip()
+    realm_id = next(
+        (
+            value.strip()
+            for key, value in callback_params.items()
+            if key.casefold().replace("_", "") == "realmid" and value.strip()
+        ),
+        "",
+    )
     if not realm_id:
-        raise RuntimeError("Intuit OAuth callback did not include realmId")
+        received_fields = ", ".join(sorted(callback_params)) or "none"
+        raise RuntimeError(
+            "Intuit OAuth callback did not include realmId. Authorize a QuickBooks "
+            "Online company using this app's Development credentials "
+            f"(non-protocol callback fields received: {received_fields})"
+        )
     access_token, refresh_token = exchange_authorization_code(
         client_id=client_id,
         client_secret=client_secret,
@@ -456,4 +468,3 @@ class QuickBooksWorkspaceProvisioner:
         if not isinstance(response, dict) or not isinstance(response.get("run_id"), int):
             raise RuntimeError("Databricks Jobs API did not return a run_id")
         return response["run_id"]
-

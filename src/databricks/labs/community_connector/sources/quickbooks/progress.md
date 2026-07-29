@@ -25,6 +25,9 @@ payloads.
   setup cannot silently target `DEFAULT`; expired Databricks authentication
   now returns a concise `databricks auth login` recovery command without an
   SDK traceback.
+- Hardened Intuit callback handling for case variants of `realmId`; a callback
+  without a connected QuickBooks company now reports safe diagnostic field
+  names and sandbox Development-key guidance without a Python traceback.
 - The connector's generated single-file Spark source is rebuilt before upload,
   preventing a workspace deployment from accidentally using stale code.
 - Added focused tests for dynamic naming, composite keys/delete options, OAuth

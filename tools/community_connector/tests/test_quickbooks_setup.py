@@ -123,7 +123,7 @@ def test_exchange_authorization_code_failure_does_not_echo_provider_payload():
 
 def test_authorize_quickbooks_captures_realm_from_callback():
     def fake_flow(**kwargs):
-        kwargs["callback_params_out"]["realmId"] = "realm-123"
+        kwargs["callback_params_out"]["realmID"] = "realm-123"
         return "code", "", "http://localhost:8765/oauth/callback"
 
     response = MagicMock(status_code=200)
@@ -145,6 +145,29 @@ def test_authorize_quickbooks_captures_realm_from_callback():
         )
 
     assert tokens == QuickBooksOAuthTokens("access", "refresh", "realm-123")
+
+
+def test_authorize_quickbooks_explains_callback_without_company():
+    def fake_flow(**kwargs):
+        kwargs["callback_params_out"]["unexpected"] = "sensitive-value"
+        return "code", "", "http://localhost:8765/oauth/callback"
+
+    with (
+        patch(
+            "databricks.labs.community_connector_cli.quickbooks_setup."
+            "run_u2m_authorization_code_flow",
+            side_effect=fake_flow,
+        ),
+        pytest.raises(RuntimeError, match="did not include realmId") as exc_info,
+    ):
+        authorize_quickbooks(
+            client_id="client",
+            client_secret="secret",
+            redirect_port=8765,
+        )
+
+    assert "unexpected" in str(exc_info.value)
+    assert "sensitive-value" not in str(exc_info.value)
 
 
 def test_job_runs_refresh_before_the_selected_pipeline():

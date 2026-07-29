@@ -2274,13 +2274,16 @@ def setup_quickbooks(
         )
         if not click.confirm("The redirect URI is registered in Intuit", default=False):
             raise click.Abort()
-        tokens = authorize_quickbooks(
-            client_id=client_id,
-            client_secret=client_secret,
-            redirect_port=redirect_port,
-            open_browser=not no_browser,
-            echo=click.echo,
-        )
+        try:
+            tokens = authorize_quickbooks(
+                client_id=client_id,
+                client_secret=client_secret,
+                redirect_port=redirect_port,
+                open_browser=not no_browser,
+                echo=click.echo,
+            )
+        except RuntimeError as exc:
+            raise click.ClickException(str(exc)) from exc
     click.echo("  ✓ QuickBooks authorization completed")
 
     provisioner = QuickBooksWorkspaceProvisioner(workspace_client)

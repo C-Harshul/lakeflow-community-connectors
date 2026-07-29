@@ -174,6 +174,15 @@ The setup command does not guess organization-specific IAM grants, data
 retention policy, or a production schedule. Apply those decisions after the
 bootstrap using `TENANT_OPERATIONS.md`.
 
+### OAuth callback has no `realmId`
+
+Intuit returns `realmId` only when consent connects the app to a QuickBooks
+Online company. For a sandbox run, use the Client ID and secret from the
+app's **Development** keys, verify the Accounting scope is enabled, and select
+or sign in to a valid sandbox company during consent. No Databricks resources
+have been created when setup stops at this point, so correct the Intuit setup
+and rerun the command.
+
 Once QuickBooks and Databricks credentials are current, deploy the Customer
 smoke pipeline first, preserve the M2 snapshot pipeline for comparison, and
 create an isolated six-table CDC pipeline:
