@@ -60,20 +60,23 @@ from databricks.sdk.service.workspace import ImportFormat, Language
 CONNECTION_TYPE = "COMMUNITY"
 
 
-def _make_workspace_client() -> WorkspaceClient:
-    """Construct a WorkspaceClient, forcing the DEFAULT profile when unset.
+def _make_workspace_client(profile: Optional[str] = None) -> WorkspaceClient:
+    """Construct a client from an explicit profile or normal SDK resolution.
 
-    The SDK already honors ``DATABRICKS_CONFIG_PROFILE`` directly. The only
-    gap this helper fills is the case where that env var is *not* set and
-    ``~/.databrickscfg`` holds multiple profiles pointing at the same
-    workspace host — the SDK cannot auto-pick one, so we explicitly select
-    ``DEFAULT`` to keep the CLI deterministic.
+    An explicit command option wins. Otherwise the SDK honors
+    ``DATABRICKS_CONFIG_PROFILE`` directly. The only gap this helper fills is
+    the case where that env var is *not* set and ``~/.databrickscfg`` holds
+    multiple profiles pointing at the same workspace host — the SDK cannot
+    auto-pick one, so we explicitly select ``DEFAULT`` to keep the CLI
+    deterministic.
 
     We also defer to the SDK when ``DATABRICKS_HOST`` is set, because env-var
     auth (host + token) bypasses ``~/.databrickscfg`` entirely. Forcing
     ``profile="DEFAULT"`` in that case would push the SDK back into file
     loading and raise on users whose config has only named profiles.
     """
+    if profile:
+        return WorkspaceClient(profile=profile)
     if os.environ.get("DATABRICKS_CONFIG_PROFILE") or os.environ.get("DATABRICKS_HOST"):
         return WorkspaceClient()
     return WorkspaceClient(profile="DEFAULT")
@@ -2109,6 +2112,11 @@ def _deploy_or_update_quickbooks_pipeline(
 
 
 @main.command("setup_quickbooks")
+@click.option(
+    "--profile",
+    default=None,
+    help="Databricks CLI profile for the target workspace.",
+)
 @click.option("--tenant", "tenant_key", default=None, help="Stable tenant/company label.")
 @click.option(
     "--environment",
@@ -2144,6 +2152,7 @@ def _deploy_or_update_quickbooks_pipeline(
 # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals
 def setup_quickbooks(
     ctx: click.Context,
+    profile: Optional[str],
     tenant_key: Optional[str],
     environment: Optional[str],
     catalog: Optional[str],
@@ -2176,8 +2185,26 @@ def setup_quickbooks(
         validate_setup_plan,
     )
 
-    workspace_client = _make_workspace_client()
-    current_user = workspace_client.current_user.me().user_name
+    if profile is None and not os.environ.get("DATABRICKS_HOST"):
+        profile = _prompt_with_default(
+            "Databricks CLI profile",
+            os.environ.get("DATABRICKS_CONFIG_PROFILE"),
+            "DEFAULT",
+        )
+    try:
+        workspace_client = _make_workspace_client(profile)
+        current_user = workspace_client.current_user.me().user_name
+    except Exception as exc:
+        credential_name = profile or "environment credentials"
+        login_hint = (
+            f"databricks auth login --profile {profile}"
+            if profile
+            else "check DATABRICKS_HOST and its credentials"
+        )
+        raise click.ClickException(
+            f"Could not authenticate with {credential_name!r}. Run `{login_hint}` "
+            "and retry."
+        ) from exc
     tenant_key = tenant_key or click.prompt("Tenant/company label")
     environment = _prompt_with_default("QuickBooks environment", environment, "sandbox").lower()
     catalog = _prompt_with_default("Destination catalog", catalog, "workspace")

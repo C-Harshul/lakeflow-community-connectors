@@ -142,6 +142,12 @@ export DATABRICKS_CONFIG_PROFILE=my-workspace-profile
 community-connector setup_quickbooks
 ```
 
+Alternatively, select the workspace explicitly with
+`community-connector setup_quickbooks --profile my-workspace-profile`. When no
+profile or `DATABRICKS_HOST` is supplied, the command prompts for the profile
+instead of silently choosing a workspace. An expired login produces a concise
+reauthentication command.
+
 The command prompts for a stable tenant label, environment, destination
 catalog/schema, secret scope, connection, pipeline, Job, workspace path, and
 Intuit OAuth details. Every resource name can instead be supplied as an option;

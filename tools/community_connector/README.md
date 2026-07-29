@@ -52,7 +52,7 @@ From the repository root, provision one tenant-isolated QuickBooks deployment
 with:
 
 ```bash
-community-connector setup_quickbooks
+community-connector setup_quickbooks --profile my-workspace-profile
 ```
 
 The command prompts for all resource names and Intuit authorization details,

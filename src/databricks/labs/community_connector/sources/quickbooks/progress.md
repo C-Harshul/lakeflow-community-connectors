@@ -21,6 +21,10 @@ payloads.
 - Added `--dry-run`, `--manual-tokens`, `--no-browser`, `--skip-run`, and
   non-interactive naming options. OAuth credentials and tokens are hidden and
   never written to temporary pipeline configuration.
+- Added explicit `--profile` selection and an interactive profile prompt so
+  setup cannot silently target `DEFAULT`; expired Databricks authentication
+  now returns a concise `databricks auth login` recovery command without an
+  SDK traceback.
 - The connector's generated single-file Spark source is rebuilt before upload,
   preventing a workspace deployment from accidentally using stale code.
 - Added focused tests for dynamic naming, composite keys/delete options, OAuth

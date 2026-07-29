@@ -11,41 +11,39 @@ import json
 import os
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, patch, create_autospec
+from unittest.mock import MagicMock, create_autospec, patch
 
 import click
 import pytest
 from click.testing import CliRunner
-
-from databricks.sdk import WorkspaceClient
-
 from databricks.labs.community_connector_cli.cli import (
-    main,
-    _parse_pipeline_spec,
-    _load_ingest_template,
-    _find_pipeline_by_name,
+    _convert_github_url_to_raw,
+    _ensure_volume_directory,
+    _extract_source_name_from_ingest,
     _find_local_source_path,
-    _upload_source_files,
+    _find_pipeline_by_name,
+    _find_repo_root,
+    _get_constant_external_options_allowlist,
+    _get_default_repo_raw_url,
+    _get_ingest_path_from_pipeline,
+    _interpolate_oauth_placeholders,
     _load_connector_spec,
+    _load_ingest_template,
+    _merge_external_options_allowlist,
+    _parse_pipeline_spec,
+    _parse_volume_path,
+    _upload_source_files,
     _validate_connection_options,
     _validate_connection_options_with_spec,
-    _convert_github_url_to_raw,
-    _get_default_repo_raw_url,
-    _get_constant_external_options_allowlist,
-    _merge_external_options_allowlist,
-    _get_ingest_path_from_pipeline,
-    _extract_source_name_from_ingest,
-    _parse_volume_path,
-    _ensure_volume_directory,
-    _validate_wheel_layout,
     _validate_framework_wheel,
-    _find_repo_root,
-    _interpolate_oauth_placeholders,
+    _validate_wheel_layout,
+    main,
 )
 from databricks.labs.community_connector_cli.connector_spec import (
-    ParsedConnectorSpec,
     AuthMethod,
+    ParsedConnectorSpec,
 )
+from databricks.sdk import WorkspaceClient
 
 
 class TestParsePipelineSpec:
@@ -1616,6 +1614,15 @@ class TestOAuthSpecBlockShape:
 
 class TestMakeWorkspaceClient:
     """Tests for the WorkspaceClient profile-resolution helper."""
+
+    @patch("databricks.labs.community_connector_cli.cli.WorkspaceClient")
+    def test_explicit_profile_is_used(self, mock_workspace_client):
+        """A command-level profile selection must override implicit resolution."""
+        from databricks.labs.community_connector_cli.cli import _make_workspace_client
+
+        _make_workspace_client("target-workspace")
+
+        mock_workspace_client.assert_called_once_with(profile="target-workspace")
 
     @patch("databricks.labs.community_connector_cli.cli.WorkspaceClient")
     def test_env_var_defers_to_sdk(self, mock_workspace_client, monkeypatch):

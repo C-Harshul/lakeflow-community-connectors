@@ -260,6 +260,8 @@ def test_cli_dry_run_prompts_for_no_credentials_or_workspace_mutations():
             main,
             [
                 "setup_quickbooks",
+                "--profile",
+                "target-workspace",
                 "--tenant",
                 "Acme",
                 "--environment",
@@ -287,3 +289,19 @@ def test_cli_dry_run_prompts_for_no_credentials_or_workspace_mutations():
     assert "qb_connection" in result.output
     workspace.secrets.create_scope.assert_not_called()
 
+
+def test_cli_reports_expired_databricks_profile_without_a_traceback():
+    with patch(
+        "databricks.labs.community_connector_cli.cli._make_workspace_client",
+        side_effect=ValueError("sensitive SDK authentication details"),
+    ):
+        result = CliRunner().invoke(
+            main,
+            ["setup_quickbooks", "--profile", "expired-profile"],
+        )
+
+    assert result.exit_code != 0
+    assert "Could not authenticate with 'expired-profile'" in result.output
+    assert "databricks auth login --profile expired-profile" in result.output
+    assert "sensitive SDK" not in result.output
+    assert "Traceback" not in result.output
