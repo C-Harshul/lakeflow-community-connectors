@@ -7,7 +7,6 @@ import time
 import urllib.request
 
 import pytest
-
 from databricks.labs.community_connector_cli import oauth_flow
 from databricks.labs.community_connector_cli.oauth_flow import (
     _generate_pkce,
@@ -43,7 +42,7 @@ def test_run_u2m_flow_round_trip(monkeypatch):
 
     def fake_open(url):
         # Extract state from the auth URL, then hit the loopback with code+state.
-        from urllib.parse import urlparse, parse_qs
+        from urllib.parse import parse_qs, urlparse
 
         qs = parse_qs(urlparse(url).query)
         captured["state"] = qs["state"][0]
@@ -77,6 +76,44 @@ def test_run_u2m_flow_round_trip(monkeypatch):
     assert redirect_uri == f"http://127.0.0.1:{port}/callback"
     # Verifier should still pass PKCE shape requirements.
     assert 43 <= len(verifier) <= 128
+
+
+def test_run_u2m_flow_returns_provider_callback_parameters(monkeypatch):
+    port = _pick_free_port()
+    callback_params = {}
+
+    def fake_open(url):
+        from urllib.parse import parse_qs, urlparse
+
+        query = parse_qs(urlparse(url).query)
+        redirect_uri = query["redirect_uri"][0]
+
+        def hit_callback():
+            time.sleep(0.1)
+            urllib.request.urlopen(
+                f"{redirect_uri}?code=THE_CODE&state={query['state'][0]}&realmId=12345",
+                timeout=5,
+            ).read()
+
+        threading.Thread(target=hit_callback, daemon=True).start()
+        return True
+
+    monkeypatch.setattr(oauth_flow.webbrowser, "open", fake_open)
+
+    run_u2m_authorization_code_flow(
+        client_id="cid",
+        authorization_endpoint="https://example.com/authorize",
+        scope="repo",
+        redirect_port=port,
+        open_browser=True,
+        timeout_seconds=5,
+        echo=lambda *_args, **_kw: None,
+        callback_params_out=callback_params,
+    )
+
+    assert callback_params["realmId"] == "12345"
+    assert "code" not in callback_params
+    assert "state" not in callback_params
 
 
 def test_run_u2m_flow_supports_provider_specific_loopback_uri(monkeypatch):
@@ -147,7 +184,7 @@ def test_run_u2m_flow_rejects_state_mismatch(monkeypatch):
     port = _pick_free_port()
 
     def fake_open(url):
-        from urllib.parse import urlparse, parse_qs
+        from urllib.parse import parse_qs, urlparse
 
         qs = parse_qs(urlparse(url).query)
         redirect_uri = qs["redirect_uri"][0]
@@ -181,7 +218,7 @@ def test_run_u2m_flow_ignores_unrelated_requests(monkeypatch):
     port = _pick_free_port()
 
     def fake_open(url):
-        from urllib.parse import urlparse, parse_qs
+        from urllib.parse import parse_qs, urlparse
 
         qs = parse_qs(urlparse(url).query)
         state = qs["state"][0]
@@ -227,7 +264,7 @@ def test_run_u2m_flow_propagates_idp_error(monkeypatch):
     port = _pick_free_port()
 
     def fake_open(url):
-        from urllib.parse import urlparse, parse_qs
+        from urllib.parse import parse_qs, urlparse
 
         qs = parse_qs(urlparse(url).query)
         redirect_uri = qs["redirect_uri"][0]
@@ -281,7 +318,7 @@ def _run_flow_capturing_auth_url(monkeypatch, **kwargs):
     captured = {}
 
     def fake_open(url):
-        from urllib.parse import urlparse, parse_qs
+        from urllib.parse import parse_qs, urlparse
 
         qs = parse_qs(urlparse(url).query)
         captured["qs"] = qs

@@ -24,8 +24,16 @@ customer display name that may change.
 
 ## Onboarding
 
-1. Choose an immutable internal tenant key and record the expected QuickBooks
-   `realm_id`.
+The recommended path is to run `community-connector setup_quickbooks` from the
+repository checkout. It prompts for tenant-qualified names, performs Intuit
+OAuth, provisions the scope/connection/schema, deploys the pipeline and refresh
+notebook, and creates the refresh-first Job. Use `--dry-run` first in a new
+workspace. It automates the resource-creation portions of steps 1 through 7;
+organization-specific grants, retention, and scheduling remain operator
+decisions.
+
+1. Choose an immutable internal tenant key. The OAuth callback supplies the
+   expected QuickBooks `realm_id`; do not infer it from the display name.
 2. Create a dedicated secret scope. Grant secret-read access only to the
    tenant's refresh Job run identity and secret-manage access only to the
    onboarding operators.

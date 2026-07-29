@@ -46,6 +46,29 @@ pip install -e .
 
 This installs the `community-connector` command globally.
 
+### QuickBooks guided setup
+
+From the repository root, provision one tenant-isolated QuickBooks deployment
+with:
+
+```bash
+community-connector setup_quickbooks
+```
+
+The command prompts for all resource names and Intuit authorization details,
+then creates or updates the dedicated secret scope, Unity Catalog connection,
+schema, pipeline, refresh notebook, and refresh-first Job. Preview the
+calculated plan without OAuth or workspace writes with:
+
+```bash
+community-connector setup_quickbooks --dry-run
+```
+
+Run `community-connector setup_quickbooks --help` for fully scripted naming,
+manual-token, browser, and validation-run options. The command must be run from
+a `lakeflow-community-connectors` checkout so it can regenerate and upload the
+QuickBooks source.
+
 
 ## Commands
 

@@ -21,24 +21,28 @@ import tempfile
 import traceback
 import zipfile
 from pathlib import Path
-from typing import Optional, List, Set, Tuple
+from typing import List, Optional, Set, Tuple
 
 import click
 import yaml
-from databricks.sdk import WorkspaceClient
-from databricks.sdk.service.catalog import VolumeType
-from databricks.sdk.service.pipelines import PipelineSpec, PipelinesEnvironment
-from databricks.sdk.service.workspace import ImportFormat, Language
 
 from databricks.labs.community_connector_cli.config import build_config, load_default_config
+from databricks.labs.community_connector_cli.connector_spec import (
+    ParsedConnectorSpec,
+    convert_github_url_to_raw,
+    load_connector_spec,
+    merge_external_options_allowlist,
+    parse_connector_spec,
+    parse_connector_spec_legacy,
+    validate_connection_options,
+    validate_connection_options_legacy,
+)
 from databricks.labs.community_connector_cli.oauth_flow import (
-    AUTH_TYPE_M2M,
-    AUTH_TYPE_STATIC,
-    AUTH_TYPE_U2M,
-    AUTH_TYPE_U2M_PER_USER,
     AUTH_TYPE_CHOICES,
     AUTH_TYPE_OAUTH_FLOW_VALUE,
     AUTH_TYPE_REQUIRED_OPTIONS,
+    AUTH_TYPE_STATIC,
+    AUTH_TYPE_U2M,
     OAUTH_OPTION_KEYS,
     run_u2m_authorization_code_flow,
 )
@@ -48,17 +52,10 @@ from databricks.labs.community_connector_cli.pipeline_spec_validator import (
     validate_pipeline_spec,
 )
 from databricks.labs.community_connector_cli.repo_client import RepoClient
-from databricks.labs.community_connector_cli.connector_spec import (
-    ParsedConnectorSpec,
-    convert_github_url_to_raw,
-    load_connector_spec,
-    parse_connector_spec,
-    parse_connector_spec_legacy,
-    merge_external_options_allowlist,
-    validate_connection_options,
-    validate_connection_options_legacy,
-)
-
+from databricks.sdk import WorkspaceClient
+from databricks.sdk.service.catalog import VolumeType
+from databricks.sdk.service.pipelines import PipelinesEnvironment, PipelineSpec
+from databricks.sdk.service.workspace import ImportFormat, Language
 
 CONNECTION_TYPE = "COMMUNITY"
 
@@ -1962,6 +1959,358 @@ def show_pipeline(ctx: click.Context, pipeline_name: str):
         raise
     except Exception as e:
         raise click.ClickException(f"Failed to get pipeline status: {e}")
+
+
+def _prompt_with_default(label: str, value: Optional[str], default: str) -> str:
+    """Use an explicit CLI value or prompt with a calculated default."""
+    return value if value is not None else click.prompt(label, default=default)
+
+
+def _write_quickbooks_setup_files(
+    directory: str,
+    *,
+    pipeline_spec: dict,
+    workspace_path: str,
+) -> tuple[str, str]:
+    """Write non-secret temporary inputs consumed by the existing pipeline CLI."""
+    spec_path = Path(directory) / "pipeline_spec.yaml"
+    config_path = Path(directory) / "deployment_config.yaml"
+    spec_path.write_text(yaml.safe_dump(pipeline_spec, sort_keys=False), encoding="utf-8")
+    config_path.write_text(
+        yaml.safe_dump(
+            {
+                "workspace_path": workspace_path,
+                "repo": {"path": workspace_path},
+                "pipeline": {
+                    "root_path": f"{workspace_path}/src",
+                    "libraries": [{"file": {"path": f"{workspace_path}/src/ingest.py"}}],
+                },
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    return str(spec_path), str(config_path)
+
+
+def _prepare_quickbooks_source() -> Path:
+    """Regenerate and validate the single-file source before workspace upload."""
+    source_dir = _find_local_source_path("quickbooks")
+    if source_dir is None:
+        raise click.ClickException(
+            "Local QuickBooks connector source directory was not found. "
+            "Run this command from a lakeflow-community-connectors checkout."
+        )
+
+    repo_root = _find_repo_root(source_dir)
+    merge_script = (
+        repo_root / "tools" / "scripts" / "merge_python_source.py"
+        if repo_root is not None
+        else None
+    )
+    if merge_script is not None and merge_script.is_file():
+        result = subprocess.run(
+            [sys.executable, str(merge_script), "quickbooks"],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or "unknown error").strip()
+            raise click.ClickException(
+                f"Failed to generate the QuickBooks deployable source: {detail}"
+            )
+        click.echo("  ✓ QuickBooks deployable source generated")
+
+    generated_source = source_dir / "_generated_quickbooks_python_source.py"
+    if not generated_source.is_file():
+        raise click.ClickException(
+            "Generated QuickBooks source is missing and the merge script is unavailable"
+        )
+    return source_dir
+
+
+def _find_exact_pipeline_by_name(workspace_client, pipeline_name: str) -> Optional[str]:
+    """Return an exact pipeline-name match, failing closed on duplicates."""
+    escaped_name = pipeline_name.replace("'", "''")
+    candidates = workspace_client.pipelines.list_pipelines(
+        filter=f"name LIKE '{escaped_name}'"
+    )
+    matches = [item for item in candidates if item.name == pipeline_name]
+    if len(matches) > 1:
+        raise click.ClickException(
+            f"Multiple pipelines named {pipeline_name!r} exist; refusing to choose one"
+        )
+    return matches[0].pipeline_id if matches else None
+
+
+def _deploy_or_update_quickbooks_pipeline(
+    ctx: click.Context,
+    *,
+    workspace_client,
+    plan,
+    pipeline_spec_path: str,
+    deployment_config_path: str,
+    repo_url: Optional[str],
+) -> str:
+    """Create a new local-source pipeline or safely update the existing one."""
+    pipeline_id = _find_exact_pipeline_by_name(
+        workspace_client,
+        plan.names.pipeline_name,
+    )
+    if pipeline_id is None:
+        ctx.invoke(
+            create_pipeline,
+            source_name="quickbooks",
+            pipeline_name=plan.names.pipeline_name,
+            connection_name=None,
+            pipeline_spec_input=pipeline_spec_path,
+            config_file=deployment_config_path,
+            repo_url=repo_url,
+            catalog=plan.names.catalog,
+            schema=plan.names.schema,
+            package_paths=(),
+            use_local_source=True,
+        )
+        created_pipeline_id = _find_exact_pipeline_by_name(
+            workspace_client,
+            plan.names.pipeline_name,
+        )
+        if created_pipeline_id is None:
+            raise click.ClickException(
+                "Pipeline creation returned without an exact matching pipeline"
+            )
+        return created_pipeline_id
+
+    pipeline_info = PipelineClient(workspace_client).get(pipeline_id)
+    spec = pipeline_info.spec
+    if spec.catalog != plan.names.catalog or spec.schema != plan.names.schema:
+        raise click.ClickException(
+            "Existing pipeline destination does not match the requested catalog/schema; "
+            "refusing an implicit data migration"
+        )
+    root_path = spec.root_path
+    if not root_path or not root_path.endswith("/src"):
+        raise click.ClickException(
+            "Existing pipeline root_path is not a community-connector source deployment"
+        )
+    workspace_path = root_path[: -len("/src")]
+    debug = ctx.obj.get("debug", False)
+    _upload_source_files(workspace_client, "quickbooks", workspace_path, debug)
+    _update_ingest_from_spec(
+        workspace_client,
+        pipeline_info,
+        pipeline_spec_path,
+        debug,
+    )
+    click.echo(f"  ✓ Pipeline updated: {plan.names.pipeline_name}")
+    return pipeline_id
+
+
+@main.command("setup_quickbooks")
+@click.option("--tenant", "tenant_key", default=None, help="Stable tenant/company label.")
+@click.option(
+    "--environment",
+    type=click.Choice(["sandbox", "production"], case_sensitive=False),
+    default=None,
+)
+@click.option("--catalog", default=None, help="Destination Unity Catalog catalog.")
+@click.option("--schema", default=None, help="Destination schema.")
+@click.option("--secret-scope", default=None, help="Dedicated Databricks secret scope.")
+@click.option("--connection-name", default=None, help="Unity Catalog connection name.")
+@click.option("--pipeline-name", default=None, help="Lakeflow pipeline name.")
+@click.option("--job-name", default=None, help="Refresh-first Job name.")
+@click.option("--workspace-path", default=None, help="Workspace deployment directory.")
+@click.option("--client-id", default=None, help="Intuit OAuth client ID.")
+@click.option(
+    "--redirect-port",
+    type=click.IntRange(1, 65535),
+    default=8765,
+    show_default=True,
+)
+@click.option("--minor-version", default="75", show_default=True)
+@click.option(
+    "--manual-tokens",
+    is_flag=True,
+    help="Prompt for existing OAuth tokens instead of opening Intuit consent.",
+)
+@click.option("--no-browser", is_flag=True, help="Print the OAuth URL without opening it.")
+@click.option("--repo-url", default=None, help="Repository cloned into the workspace.")
+@click.option("--dry-run", is_flag=True, help="Show the non-secret plan without changing anything.")
+@click.option("--skip-run", is_flag=True, help="Deploy without starting the Job.")
+@click.option("--yes", "assume_yes", is_flag=True, help="Skip the final confirmation.")
+@click.pass_context
+# pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals
+def setup_quickbooks(
+    ctx: click.Context,
+    tenant_key: Optional[str],
+    environment: Optional[str],
+    catalog: Optional[str],
+    schema: Optional[str],
+    secret_scope: Optional[str],
+    connection_name: Optional[str],
+    pipeline_name: Optional[str],
+    job_name: Optional[str],
+    workspace_path: Optional[str],
+    client_id: Optional[str],
+    redirect_port: int,
+    minor_version: str,
+    manual_tokens: bool,
+    no_browser: bool,
+    repo_url: Optional[str],
+    dry_run: bool,
+    skip_run: bool,
+    assume_yes: bool,
+):
+    """Interactively deploy one tenant-isolated QuickBooks connector."""
+    from databricks.labs.community_connector_cli.quickbooks_setup import (
+        QuickBooksOAuthTokens,
+        QuickBooksResourceNames,
+        QuickBooksSetupPlan,
+        QuickBooksWorkspaceProvisioner,
+        authorize_quickbooks,
+        build_job_settings,
+        build_pipeline_spec,
+        default_resource_names,
+        validate_setup_plan,
+    )
+
+    workspace_client = _make_workspace_client()
+    current_user = workspace_client.current_user.me().user_name
+    tenant_key = tenant_key or click.prompt("Tenant/company label")
+    environment = _prompt_with_default("QuickBooks environment", environment, "sandbox").lower()
+    catalog = _prompt_with_default("Destination catalog", catalog, "workspace")
+    defaults = default_resource_names(
+        tenant_key=tenant_key,
+        environment=environment,
+        current_user=current_user,
+        catalog=catalog,
+    )
+    names = QuickBooksResourceNames(
+        tenant_key=defaults.tenant_key,
+        catalog=catalog,
+        schema=_prompt_with_default("Destination schema", schema, defaults.schema),
+        secret_scope=_prompt_with_default("Secret scope", secret_scope, defaults.secret_scope),
+        connection_name=_prompt_with_default(
+            "Unity Catalog connection",
+            connection_name,
+            defaults.connection_name,
+        ),
+        pipeline_name=_prompt_with_default("Pipeline name", pipeline_name, defaults.pipeline_name),
+        job_name=_prompt_with_default("Job name", job_name, defaults.job_name),
+        workspace_path=_prompt_with_default(
+            "Workspace deployment path",
+            workspace_path,
+            defaults.workspace_path,
+        ),
+    )
+    plan = QuickBooksSetupPlan(
+        names=names,
+        environment=environment,
+        minor_version=minor_version,
+    )
+    try:
+        validate_setup_plan(plan)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    click.echo("\nQuickBooks setup plan")
+    click.echo(f"  Tenant:      {names.tenant_key}")
+    click.echo(f"  Environment: {plan.environment}")
+    click.echo(f"  Connection:  {names.connection_name}")
+    click.echo(f"  Secret scope:{' ' if names.secret_scope else ''}{names.secret_scope}")
+    click.echo(f"  Pipeline:    {names.pipeline_name}")
+    click.echo(f"  Job:         {names.job_name}")
+    click.echo(f"  Destination: {names.catalog}.{names.schema}")
+    click.echo(f"  Workspace:   {names.workspace_path}")
+    if dry_run:
+        click.echo("\nDry run complete. No OAuth flow or workspace mutation was performed.")
+        return
+    if not assume_yes and not click.confirm("\nProceed with OAuth and deployment?"):
+        raise click.Abort()
+
+    source_dir = _prepare_quickbooks_source()
+    client_id = client_id or click.prompt("Intuit client ID")
+    client_secret = click.prompt("Intuit client secret", hide_input=True)
+    if manual_tokens:
+        tokens = QuickBooksOAuthTokens(
+            access_token=click.prompt("Current Intuit access token", hide_input=True),
+            refresh_token=click.prompt("Current Intuit refresh token", hide_input=True),
+            realm_id=click.prompt("QuickBooks realm ID"),
+        )
+    else:
+        redirect_uri = f"http://localhost:{redirect_port}/oauth/callback"
+        click.echo(
+            "\nBefore continuing, add this exact redirect URI to the Intuit app:\n"
+            f"  {redirect_uri}"
+        )
+        if not click.confirm("The redirect URI is registered in Intuit", default=False):
+            raise click.Abort()
+        tokens = authorize_quickbooks(
+            client_id=client_id,
+            client_secret=client_secret,
+            redirect_port=redirect_port,
+            open_browser=not no_browser,
+            echo=click.echo,
+        )
+    click.echo("  ✓ QuickBooks authorization completed")
+
+    provisioner = QuickBooksWorkspaceProvisioner(workspace_client)
+    secret_action = provisioner.ensure_secret_scope(
+        scope=names.secret_scope,
+        client_id=client_id,
+        client_secret=client_secret,
+        tokens=tokens,
+    )
+    click.echo(f"  ✓ Secret scope {secret_action}: {names.secret_scope}")
+    connection_action = provisioner.ensure_connection(
+        plan=plan,
+        access_token=tokens.access_token,
+        realm_id=tokens.realm_id,
+    )
+    click.echo(f"  ✓ Connection {connection_action}: {names.connection_name}")
+    schema_action = provisioner.ensure_schema(catalog=names.catalog, schema=names.schema)
+    click.echo(f"  ✓ Schema {schema_action}: {names.catalog}.{names.schema}")
+
+    pipeline_spec = build_pipeline_spec(names.connection_name)
+    with tempfile.TemporaryDirectory(prefix="quickbooks-setup-") as temp_dir:
+        pipeline_spec_path, deployment_config_path = _write_quickbooks_setup_files(
+            temp_dir,
+            pipeline_spec=pipeline_spec,
+            workspace_path=names.workspace_path,
+        )
+        pipeline_id = _deploy_or_update_quickbooks_pipeline(
+            ctx,
+            workspace_client=workspace_client,
+            plan=plan,
+            pipeline_spec_path=pipeline_spec_path,
+            deployment_config_path=deployment_config_path,
+            repo_url=repo_url,
+        )
+
+    refresh_notebook_path = f"{names.workspace_path}/refresh_quickbooks_token"
+    provisioner.upload_refresh_notebook(
+        local_source=source_dir / "quickbooks_token_refresh.py",
+        workspace_path=refresh_notebook_path,
+    )
+    click.echo(f"  ✓ Refresh notebook uploaded: {refresh_notebook_path}")
+
+    settings = build_job_settings(
+        plan=plan,
+        pipeline_id=pipeline_id,
+        refresh_notebook_path=refresh_notebook_path,
+        realm_id=tokens.realm_id,
+    )
+    job_action, job_id = provisioner.ensure_job(settings=settings)
+    click.echo(f"  ✓ Job {job_action}: {names.job_name} ({job_id})")
+    host = workspace_client.config.host.rstrip("/")
+    click.echo(f"\nPipeline: {host}/pipelines/{pipeline_id}")
+    click.echo(f"Job:      {host}/#job/{job_id}")
+    click.echo(f"Tables:   {names.catalog}.{names.schema}")
+    if not skip_run:
+        run_id = provisioner.run_job(job_id)
+        click.echo(f"  ✓ Validation Job started (run ID: {run_id})")
 
 
 @main.command("create_connection")

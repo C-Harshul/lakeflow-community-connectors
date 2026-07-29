@@ -28,7 +28,6 @@ import webbrowser
 from dataclasses import dataclass
 from typing import Optional, Tuple
 
-
 AUTH_TYPE_STATIC = "static"
 AUTH_TYPE_M2M = "m2m"
 AUTH_TYPE_U2M = "u2m"
@@ -98,6 +97,7 @@ class _CallbackResult:
     code: Optional[str] = None
     state: Optional[str] = None
     error: Optional[str] = None
+    params: Optional[dict[str, list[str]]] = None
 
 
 def _pick_free_port() -> int:
@@ -125,6 +125,7 @@ class _CallbackHandler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):  # noqa: N802  # pylint: disable=invalid-name
         parsed = urllib.parse.urlparse(self.path)
         params = urllib.parse.parse_qs(parsed.query)
+        self.result.params = params
 
         error = params.get("error", [None])[0]
         code = params.get("code", [None])[0]
@@ -191,6 +192,7 @@ def run_u2m_authorization_code_flow(
     open_browser: bool = True,
     timeout_seconds: int = 300,
     echo=print,
+    callback_params_out: Optional[dict[str, str]] = None,
 ) -> Tuple[str, str, str]:
     """Drive the OAuth 2.0 authorization-code flow against a loopback redirect.
 
@@ -284,5 +286,14 @@ def run_u2m_authorization_code_flow(
     if result.error:
         raise RuntimeError(f"OAuth authorization failed: {result.error}")
     assert result.code is not None  # for type-checkers; guaranteed by the loop above
+    if callback_params_out is not None and result.params is not None:
+        protocol_keys = {"code", "state", "error", "error_description"}
+        callback_params_out.update(
+            {
+                key: values[0]
+                for key, values in result.params.items()
+                if values and key not in protocol_keys
+            }
+        )
 
     return result.code, verifier, redirect_uri

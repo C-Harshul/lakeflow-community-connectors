@@ -60,6 +60,10 @@ Validation available:
   pattern.
 - `TENANT_OPERATIONS.md` for onboarding, permissions, revocation, migration,
   and retention.
+- Interactive `community-connector setup_quickbooks` automation for OAuth,
+  secret storage, tenant-bound connection creation, schema creation, source
+  deployment, pipeline creation, refresh-first Job creation, and an optional
+  validation run.
 
 Not implemented or externally validated yet:
 
@@ -123,6 +127,46 @@ Run the offline connector suite from the repository root:
 ```bash
 PYTHONPATH=src .venv/bin/python -m pytest tests/unit/sources/quickbooks -q
 ```
+
+## Automated workspace setup
+
+Install the CLI from this checkout and authenticate the Databricks CLI profile
+for the target workspace:
+
+```bash
+cd tools/community_connector
+python -m pip install -e .
+cd ../..
+
+export DATABRICKS_CONFIG_PROFILE=my-workspace-profile
+community-connector setup_quickbooks
+```
+
+The command prompts for a stable tenant label, environment, destination
+catalog/schema, secret scope, connection, pipeline, Job, workspace path, and
+Intuit OAuth details. Every resource name can instead be supplied as an option;
+inspect them with:
+
+```bash
+community-connector setup_quickbooks --help
+```
+
+Use `--dry-run` to review calculated names without starting OAuth or mutating
+the workspace. By default the command opens Intuit consent, captures the
+authorized `realmId`, creates or safely updates the tenant resources,
+regenerates and uploads the local connector source, and starts the
+refresh-then-ingest Job. Use `--manual-tokens` only when you already have an
+access token, refresh token, and realm ID; use `--skip-run` to provision
+without starting validation.
+
+Re-running the same inputs updates the bound connection, deployed source,
+pipeline specification, notebook, and Job instead of intentionally creating
+duplicates. It refuses to reuse a connection bound to another QuickBooks
+realm or to move an existing pipeline to a different schema implicitly.
+
+The setup command does not guess organization-specific IAM grants, data
+retention policy, or a production schedule. Apply those decisions after the
+bootstrap using `TENANT_OPERATIONS.md`.
 
 Once QuickBooks and Databricks credentials are current, deploy the Customer
 smoke pipeline first, preserve the M2 snapshot pipeline for comparison, and

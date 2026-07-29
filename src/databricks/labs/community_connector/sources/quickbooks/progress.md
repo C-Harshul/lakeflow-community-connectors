@@ -4,6 +4,34 @@ Keep entries most-recent-first. Record reproducible evidence and blockers, but
 never credentials, access tokens, refresh tokens, client secrets, or customer
 payloads.
 
+## 2026-07-29 — M5.5 repeatable workspace setup CLI implemented
+
+- Added `community-connector setup_quickbooks`, an interactive setup workflow
+  for a new workspace. Resource names are supplied by options or prompts, with
+  tenant/environment-derived defaults rather than fixed deployment names.
+- Added a reusable provisioning module for setup-plan validation, Intuit OAuth
+  authorization-code exchange, realm capture, connection options, six-table
+  pipeline specification, tenant binding, refresh-first Job settings, and
+  idempotent Databricks resource operations.
+- The command can create or update the dedicated secret scope, realm-bound
+  COMMUNITY connection, destination schema, local-source Lakeflow pipeline,
+  refresh notebook, and dependent Job, then optionally start a validation run.
+- Added fail-closed reuse checks: a connection bound to another realm and a
+  pipeline targeting another destination are not silently repurposed.
+- Added `--dry-run`, `--manual-tokens`, `--no-browser`, `--skip-run`, and
+  non-interactive naming options. OAuth credentials and tokens are hidden and
+  never written to temporary pipeline configuration.
+- The connector's generated single-file Spark source is rebuilt before upload,
+  preventing a workspace deployment from accidentally using stale code.
+- Added focused tests for dynamic naming, composite keys/delete options, OAuth
+  callback realm capture, sanitized token failures, tenant binding, secret
+  storage, connection isolation, Job updates, and mutation-free dry runs.
+- Verification: 258 CLI tests passed; the QuickBooks connector suite passed
+  78 tests with 1 expected skip; focused Ruff and `git diff --check` passed.
+- Updated the connector README and tenant runbook. Workspace-specific IAM
+  grants, retention policy, recurring scheduling, and acceptance in a second
+  live QuickBooks realm remain deliberate operator/external steps.
+
 ## 2026-07-28 — M5 tenant isolation implemented and live-tested
 
 - Added non-null `realm_id` to every table schema, normalized row, and delete
