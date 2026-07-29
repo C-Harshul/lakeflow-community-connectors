@@ -10,6 +10,9 @@ from databricks.labs.community_connector_cli.cli import (
     create_pipeline,
     main,
 )
+from databricks.labs.community_connector_cli.databricks_auth import (
+    DatabricksCliProfile,
+)
 from databricks.labs.community_connector_cli.quickbooks_setup import (
     QUICKBOOKS_TABLES,
     QuickBooksOAuthTokens,
@@ -387,9 +390,187 @@ def test_cli_dry_run_prompts_for_no_credentials_or_workspace_mutations():
         )
 
     assert result.exit_code == 0, result.output
-    assert "No OAuth flow or workspace mutation was performed" in result.output
+    assert "No Intuit OAuth flow or Databricks workspace mutation" in result.output
     assert "qb_connection" in result.output
     workspace.secrets.create_scope.assert_not_called()
+
+
+def test_cli_lists_existing_profile_with_complete_workspace_url():
+    workspace = MagicMock()
+    workspace.current_user.me.return_value = SimpleNamespace(
+        user_name="owner@example.com"
+    )
+    profiles = [
+        DatabricksCliProfile(
+            name="fresh-workspace",
+            host="https://dbc.example.com",
+            workspace_id="123456",
+        )
+    ]
+
+    with (
+        patch(
+            "databricks.labs.community_connector_cli.databricks_auth."
+            "list_databricks_profiles",
+            return_value=profiles,
+        ),
+        patch(
+            "databricks.labs.community_connector_cli.cli._make_workspace_client",
+            return_value=workspace,
+        ) as make_client,
+    ):
+        result = CliRunner().invoke(
+            main,
+            [
+                "setup_quickbooks",
+                "--tenant",
+                "Acme",
+                "--environment",
+                "sandbox",
+                "--catalog",
+                "workspace",
+                "--schema",
+                "qb_data",
+                "--secret-scope",
+                "qb_secrets",
+                "--connection-name",
+                "qb_connection",
+                "--pipeline-name",
+                "qb_pipeline",
+                "--job-name",
+                "qb_job",
+                "--workspace-path",
+                "/Users/owner@example.com/qb",
+                "--dry-run",
+            ],
+            input="1\n",
+        )
+
+    assert result.exit_code == 0, result.output
+    assert "fresh-workspace" in result.output
+    assert "https://dbc.example.com/?o=123456" in result.output
+    make_client.assert_called_once_with("fresh-workspace")
+
+
+def test_cli_can_create_profile_before_dry_run():
+    workspace = MagicMock()
+    workspace.current_user.me.return_value = SimpleNamespace(
+        user_name="owner@example.com"
+    )
+
+    with (
+        patch(
+            "databricks.labs.community_connector_cli.databricks_auth."
+            "list_databricks_profiles",
+            return_value=[],
+        ),
+        patch(
+            "databricks.labs.community_connector_cli.databricks_auth."
+            "login_databricks_profile"
+        ) as login,
+        patch(
+            "databricks.labs.community_connector_cli.cli._make_workspace_client",
+            return_value=workspace,
+        ) as make_client,
+    ):
+        result = CliRunner().invoke(
+            main,
+            [
+                "setup_quickbooks",
+                "--tenant",
+                "Acme",
+                "--environment",
+                "sandbox",
+                "--catalog",
+                "workspace",
+                "--schema",
+                "qb_data",
+                "--secret-scope",
+                "qb_secrets",
+                "--connection-name",
+                "qb_connection",
+                "--pipeline-name",
+                "qb_pipeline",
+                "--job-name",
+                "qb_job",
+                "--workspace-path",
+                "/Users/owner@example.com/qb",
+                "--dry-run",
+            ],
+            input=(
+                "1\n"
+                "new-fresh-profile\n"
+                "https://dbc.example.com/?autoLogin=true&o=123456\n"
+            ),
+        )
+
+    assert result.exit_code == 0, result.output
+    login.assert_called_once_with(
+        profile_name="new-fresh-profile",
+        workspace_url="https://dbc.example.com?o=123456",
+    )
+    make_client.assert_called_once_with("new-fresh-profile")
+    assert "Databricks profile created: new-fresh-profile" in result.output
+
+
+def test_cli_can_reauthenticate_selected_existing_profile():
+    workspace = MagicMock()
+    workspace.current_user.me.return_value = SimpleNamespace(
+        user_name="owner@example.com"
+    )
+    selected = DatabricksCliProfile(
+        name="expired-profile",
+        host="https://dbc.example.com",
+        workspace_id="123456",
+    )
+
+    with (
+        patch(
+            "databricks.labs.community_connector_cli.databricks_auth."
+            "list_databricks_profiles",
+            return_value=[selected],
+        ),
+        patch(
+            "databricks.labs.community_connector_cli.databricks_auth."
+            "login_databricks_profile"
+        ) as login,
+        patch(
+            "databricks.labs.community_connector_cli.cli._make_workspace_client",
+            side_effect=[ValueError("expired"), workspace],
+        ),
+    ):
+        result = CliRunner().invoke(
+            main,
+            [
+                "setup_quickbooks",
+                "--tenant",
+                "Acme",
+                "--environment",
+                "sandbox",
+                "--catalog",
+                "workspace",
+                "--schema",
+                "qb_data",
+                "--secret-scope",
+                "qb_secrets",
+                "--connection-name",
+                "qb_connection",
+                "--pipeline-name",
+                "qb_pipeline",
+                "--job-name",
+                "qb_job",
+                "--workspace-path",
+                "/Users/owner@example.com/qb",
+                "--dry-run",
+            ],
+            input="1\ny\n",
+        )
+
+    assert result.exit_code == 0, result.output
+    login.assert_called_once_with(
+        profile_name="expired-profile",
+        workspace_url="https://dbc.example.com",
+    )
 
 
 def test_cli_reports_expired_databricks_profile_without_a_traceback():

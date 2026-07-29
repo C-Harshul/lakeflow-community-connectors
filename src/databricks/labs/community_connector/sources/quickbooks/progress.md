@@ -41,12 +41,17 @@ payloads.
   generic pipeline command created a second client and fell back to an expired
   `DEFAULT` profile after the scope, connection, and schema were provisioned.
   Reruns now continue idempotently in the explicitly selected workspace.
+- Replaced the raw profile-name prompt with an authentication chooser. It lists
+  existing local profiles with their complete workspace URLs/IDs, supports
+  selecting and reauthenticating one, or creates a named profile from a pasted
+  workspace URL through Databricks browser OAuth. Explicit `--profile` and
+  environment-based authentication remain available for automation.
 - The connector's generated single-file Spark source is rebuilt before upload,
   preventing a workspace deployment from accidentally using stale code.
 - Added focused tests for dynamic naming, composite keys/delete options, OAuth
   callback realm capture, sanitized token failures, tenant binding, secret
   storage, connection isolation, Job updates, and mutation-free dry runs.
-- Verification: 258 CLI tests passed; the QuickBooks connector suite passed
+- Verification: 276 CLI tests passed; the QuickBooks connector suite passed
   78 tests with 1 expected skip; focused Ruff and `git diff --check` passed.
 - Updated the connector README and tenant runbook. Workspace-specific IAM
   grants, retention policy, recurring scheduling, and acceptance in a second

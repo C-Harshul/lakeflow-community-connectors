@@ -130,23 +130,25 @@ PYTHONPATH=src .venv/bin/python -m pytest tests/unit/sources/quickbooks -q
 
 ## Automated workspace setup
 
-Install the CLI from this checkout and authenticate the Databricks CLI profile
-for the target workspace:
+Install the CLI from this checkout:
 
 ```bash
 cd tools/community_connector
 python -m pip install -e .
 cd ../..
 
-export DATABRICKS_CONFIG_PROFILE=my-workspace-profile
 community-connector setup_quickbooks
 ```
 
-Alternatively, select the workspace explicitly with
-`community-connector setup_quickbooks --profile my-workspace-profile`. When no
-profile or `DATABRICKS_HOST` is supplied, the command prompts for the profile
-instead of silently choosing a workspace. An expired login produces a concise
-reauthentication command.
+When no profile or `DATABRICKS_HOST` is supplied, setup lists every existing
+Databricks CLI profile with its complete workspace URL and workspace ID. Choose
+one, or select **Create a new profile**, supply a name and workspace URL, and
+complete the browser login opened by the CLI. If an existing profile has
+expired, setup offers to reauthenticate it and then continues.
+
+For scripted use, bypass the chooser with
+`community-connector setup_quickbooks --profile my-workspace-profile` or set
+`DATABRICKS_CONFIG_PROFILE`.
 
 The command prompts for a stable tenant label, environment, destination
 catalog/schema, secret scope, connection, pipeline, Job, workspace path, and
@@ -157,8 +159,9 @@ inspect them with:
 community-connector setup_quickbooks --help
 ```
 
-Use `--dry-run` to review calculated names without starting OAuth or mutating
-the workspace. By default the command opens Intuit consent, captures the
+Use `--dry-run` to review calculated names without starting Intuit OAuth or
+mutating the workspace. Creating a new Databricks profile can still open its
+browser login. By default the command opens Intuit consent, captures the
 authorized `realmId`, creates or safely updates the tenant resources,
 regenerates and uploads the local connector source, and starts the
 refresh-then-ingest Job. Use `--manual-tokens` only when you already have an

@@ -1970,6 +1970,57 @@ def _prompt_with_default(label: str, value: Optional[str], default: str) -> str:
     return value if value is not None else click.prompt(label, default=default)
 
 
+def _select_or_create_databricks_profile():
+    """Let an interactive user select a visible workspace or create its login."""
+    from databricks.labs.community_connector_cli.databricks_auth import (
+        DatabricksCliProfile,
+        list_databricks_profiles,
+        login_databricks_profile,
+        normalize_workspace_url,
+    )
+
+    try:
+        profiles = list_databricks_profiles()
+    except RuntimeError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    click.echo("\nDatabricks workspace authentication")
+    for index, item in enumerate(profiles, start=1):
+        workspace_url = item.host
+        if item.workspace_id and "?" not in workspace_url:
+            workspace_url = f"{workspace_url}/?o={item.workspace_id}"
+        click.echo(f"  {index}. {item.name}")
+        click.echo(f"     {workspace_url}")
+    create_index = len(profiles) + 1
+    click.echo(f"  {create_index}. Create a new profile")
+
+    selection = click.prompt(
+        "Choose a Databricks profile",
+        type=click.IntRange(1, create_index),
+    )
+    if selection <= len(profiles):
+        return profiles[selection - 1], False
+
+    existing_names = {item.name for item in profiles}
+    profile_name = click.prompt("New profile name").strip()
+    if profile_name in existing_names:
+        raise click.ClickException(
+            f"Profile {profile_name!r} already exists; select it from the list instead"
+        )
+    workspace_url_input = click.prompt("Databricks workspace URL")
+    try:
+        workspace_url = normalize_workspace_url(workspace_url_input)
+        click.echo(f"Starting Databricks browser login for {workspace_url}...")
+        login_databricks_profile(
+            profile_name=profile_name,
+            workspace_url=workspace_url,
+        )
+    except (RuntimeError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.echo(f"  ✓ Databricks profile created: {profile_name}")
+    return DatabricksCliProfile(profile_name, workspace_url), True
+
+
 def _write_quickbooks_setup_files(
     directory: str,
     *,
@@ -2188,26 +2239,53 @@ def setup_quickbooks(
         validate_setup_plan,
     )
 
+    selected_profile = None
+    profile_was_created = False
     if profile is None and not os.environ.get("DATABRICKS_HOST"):
-        profile = _prompt_with_default(
-            "Databricks CLI profile",
-            os.environ.get("DATABRICKS_CONFIG_PROFILE"),
-            "DEFAULT",
-        )
+        environment_profile = os.environ.get("DATABRICKS_CONFIG_PROFILE")
+        if environment_profile:
+            profile = environment_profile
+        else:
+            selected_profile, profile_was_created = _select_or_create_databricks_profile()
+            profile = selected_profile.name
     try:
         workspace_client = _make_workspace_client(profile)
         current_user = workspace_client.current_user.me().user_name
     except Exception as exc:
-        credential_name = profile or "environment credentials"
-        login_hint = (
-            f"databricks auth login --profile {profile}"
-            if profile
-            else "check DATABRICKS_HOST and its credentials"
-        )
-        raise click.ClickException(
-            f"Could not authenticate with {credential_name!r}. Run `{login_hint}` "
-            "and retry."
-        ) from exc
+        if (
+            selected_profile is not None
+            and not profile_was_created
+            and click.confirm(
+                f"Profile {profile!r} could not authenticate. Log in again now?",
+                default=True,
+            )
+        ):
+            from databricks.labs.community_connector_cli.databricks_auth import (
+                login_databricks_profile,
+            )
+
+            try:
+                login_databricks_profile(
+                    profile_name=selected_profile.name,
+                    workspace_url=selected_profile.host,
+                )
+                workspace_client = _make_workspace_client(profile)
+                current_user = workspace_client.current_user.me().user_name
+            except Exception as retry_exc:
+                raise click.ClickException(
+                    f"Could not authenticate with {profile!r} after login"
+                ) from retry_exc
+        else:
+            credential_name = profile or "environment credentials"
+            login_hint = (
+                f"databricks auth login --profile {profile}"
+                if profile
+                else "check DATABRICKS_HOST and its credentials"
+            )
+            raise click.ClickException(
+                f"Could not authenticate with {credential_name!r}. Run `{login_hint}` "
+                "and retry."
+            ) from exc
     tenant_key = tenant_key or click.prompt("Tenant/company label")
     environment = _prompt_with_default("QuickBooks environment", environment, "sandbox").lower()
     catalog = _prompt_with_default("Destination catalog", catalog, "workspace")
@@ -2255,7 +2333,10 @@ def setup_quickbooks(
     click.echo(f"  Destination: {names.catalog}.{names.schema}")
     click.echo(f"  Workspace:   {names.workspace_path}")
     if dry_run:
-        click.echo("\nDry run complete. No OAuth flow or workspace mutation was performed.")
+        click.echo(
+            "\nDry run complete. No Intuit OAuth flow or Databricks workspace "
+            "mutation was performed."
+        )
         return
     if not assume_yes and not click.confirm("\nProceed with OAuth and deployment?"):
         raise click.Abort()

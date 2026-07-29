@@ -52,17 +52,23 @@ From the repository root, provision one tenant-isolated QuickBooks deployment
 with:
 
 ```bash
-community-connector setup_quickbooks --profile my-workspace-profile
+community-connector setup_quickbooks
 ```
 
 The command prompts for all resource names and Intuit authorization details,
 then creates or updates the dedicated secret scope, Unity Catalog connection,
 schema, pipeline, refresh notebook, and refresh-first Job. Preview the
-calculated plan without OAuth or workspace writes with:
+calculated plan without Intuit OAuth or workspace writes with:
 
 ```bash
 community-connector setup_quickbooks --dry-run
 ```
+
+At startup, select an existing Databricks CLI profile from a list showing its
+full workspace URL, or create a new profile by entering a name and workspace
+URL and completing browser login. Use `--profile my-workspace-profile` to skip
+the chooser in scripts. Creating a profile during `--dry-run` still performs
+the local Databricks browser login, but does not write workspace resources.
 
 Run `community-connector setup_quickbooks --help` for fully scripted naming,
 manual-token, browser, and validation-run options. The command must be run from
