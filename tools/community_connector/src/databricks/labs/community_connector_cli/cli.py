@@ -2182,6 +2182,7 @@ def setup_quickbooks(
         build_job_settings,
         build_pipeline_spec,
         default_resource_names,
+        validate_quickbooks_company_access,
         validate_setup_plan,
     )
 
@@ -2274,6 +2275,14 @@ def setup_quickbooks(
         )
         if not click.confirm("The redirect URI is registered in Intuit", default=False):
             raise click.Abort()
+
+        def prompt_for_missing_realm_id() -> str:
+            click.echo(
+                "\nIntuit omitted realmId from the callback. Open the sandbox company "
+                "and copy the numeric companyId from its browser URL."
+            )
+            return click.prompt("QuickBooks company ID (realm ID)")
+
         try:
             tokens = authorize_quickbooks(
                 client_id=client_id,
@@ -2281,10 +2290,20 @@ def setup_quickbooks(
                 redirect_port=redirect_port,
                 open_browser=not no_browser,
                 echo=click.echo,
+                realm_id_resolver=prompt_for_missing_realm_id,
             )
         except RuntimeError as exc:
             raise click.ClickException(str(exc)) from exc
     click.echo("  ✓ QuickBooks authorization completed")
+    try:
+        validate_quickbooks_company_access(
+            tokens=tokens,
+            environment=plan.environment,
+            minor_version=plan.minor_version,
+        )
+    except RuntimeError as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.echo("  ✓ QuickBooks company access verified")
 
     provisioner = QuickBooksWorkspaceProvisioner(workspace_client)
     secret_action = provisioner.ensure_secret_scope(

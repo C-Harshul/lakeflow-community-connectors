@@ -179,9 +179,11 @@ bootstrap using `TENANT_OPERATIONS.md`.
 Intuit returns `realmId` only when consent connects the app to a QuickBooks
 Online company. For a sandbox run, use the Client ID and secret from the
 app's **Development** keys, verify the Accounting scope is enabled, and select
-or sign in to a valid sandbox company during consent. No Databricks resources
-have been created when setup stops at this point, so correct the Intuit setup
-and rerun the command.
+or sign in to a valid sandbox company during consent. If Intuit nevertheless
+omits the callback field, setup prompts for the numeric `companyId` visible in
+the open sandbox company's browser URL. It exchanges the authorization code
+and calls the CompanyInfo endpoint to prove that the token can access that
+exact realm before creating any Databricks resource.
 
 Once QuickBooks and Databricks credentials are current, deploy the Customer
 smoke pipeline first, preserve the M2 snapshot pipeline for comparison, and

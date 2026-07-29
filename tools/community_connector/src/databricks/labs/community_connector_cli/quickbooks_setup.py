@@ -21,6 +21,10 @@ from databricks.sdk.service.workspace import ImportFormat, Language
 QUICKBOOKS_AUTHORIZATION_ENDPOINT = "https://appcenter.intuit.com/connect/oauth2"
 QUICKBOOKS_TOKEN_ENDPOINT = "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer"
 QUICKBOOKS_SCOPE = "com.intuit.quickbooks.accounting"
+QUICKBOOKS_API_BASE_URLS = {
+    "sandbox": "https://sandbox-quickbooks.api.intuit.com",
+    "production": "https://quickbooks.api.intuit.com",
+}
 TENANT_BINDING_PREFIX = "quickbooks-realm-sha256:"
 DEFAULT_MINOR_VERSION = "75"
 DEFAULT_REDIRECT_PORT = 8765
@@ -224,6 +228,7 @@ def authorize_quickbooks(
     open_browser: bool = True,
     echo: Callable = print,
     post: Callable = requests.post,
+    realm_id_resolver: Callable[[], str] | None = None,
 ) -> QuickBooksOAuthTokens:
     """Run Intuit consent, capture realmId, and exchange the authorization code."""
     callback_params: dict[str, str] = {}
@@ -248,12 +253,16 @@ def authorize_quickbooks(
         "",
     )
     if not realm_id:
-        received_fields = ", ".join(sorted(callback_params)) or "none"
-        raise RuntimeError(
-            "Intuit OAuth callback did not include realmId. Authorize a QuickBooks "
-            "Online company using this app's Development credentials "
-            f"(non-protocol callback fields received: {received_fields})"
-        )
+        if realm_id_resolver is None:
+            received_fields = ", ".join(sorted(callback_params)) or "none"
+            raise RuntimeError(
+                "Intuit OAuth callback did not include realmId. Authorize a QuickBooks "
+                "Online company using this app's Development credentials "
+                f"(non-protocol callback fields received: {received_fields})"
+            )
+        realm_id = realm_id_resolver().strip()
+        if not realm_id:
+            raise RuntimeError("QuickBooks company ID cannot be empty")
     access_token, refresh_token = exchange_authorization_code(
         client_id=client_id,
         client_secret=client_secret,
@@ -266,6 +275,48 @@ def authorize_quickbooks(
         refresh_token=refresh_token,
         realm_id=realm_id,
     )
+
+
+def validate_quickbooks_company_access(
+    *,
+    tokens: QuickBooksOAuthTokens,
+    environment: str,
+    minor_version: str,
+    get: Callable = requests.get,
+) -> None:
+    """Prove the access token and realm identify the same QuickBooks company."""
+    if environment not in QUICKBOOKS_API_BASE_URLS:
+        raise RuntimeError("QuickBooks environment must be sandbox or production")
+    if not re.fullmatch(r"\d+", tokens.realm_id):
+        raise RuntimeError("QuickBooks company ID must contain only digits")
+
+    base_url = QUICKBOOKS_API_BASE_URLS[environment]
+    response = get(
+        (
+            f"{base_url}/v3/company/{tokens.realm_id}"
+            f"/companyinfo/{tokens.realm_id}"
+        ),
+        headers={
+            "Accept": "application/json",
+            "Authorization": f"Bearer {tokens.access_token}",
+        },
+        params={"minorversion": minor_version},
+        timeout=DEFAULT_TIMEOUT_SECONDS,
+    )
+    if response.status_code != 200:
+        raise RuntimeError(
+            "QuickBooks company verification failed with "
+            f"HTTP {response.status_code}; check the company ID and sandbox account"
+        )
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise RuntimeError("QuickBooks company verification returned invalid JSON") from exc
+    company = payload.get("CompanyInfo") if isinstance(payload, dict) else None
+    if not isinstance(company, dict) or str(company.get("Id", "")) != tokens.realm_id:
+        raise RuntimeError(
+            "QuickBooks company verification returned a different or missing company ID"
+        )
 
 
 def build_job_settings(

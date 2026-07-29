@@ -19,6 +19,7 @@ from databricks.labs.community_connector_cli.quickbooks_setup import (
     exchange_authorization_code,
     slugify_tenant_key,
     tenant_binding_comment,
+    validate_quickbooks_company_access,
 )
 from databricks.sdk.errors import NotFound
 
@@ -168,6 +169,66 @@ def test_authorize_quickbooks_explains_callback_without_company():
 
     assert "unexpected" in str(exc_info.value)
     assert "sensitive-value" not in str(exc_info.value)
+
+
+def test_authorize_quickbooks_resolves_missing_realm_interactively():
+    def fake_flow(**_kwargs):
+        return "code", "", "http://localhost:8765/oauth/callback"
+
+    response = MagicMock(status_code=200)
+    response.json.return_value = {
+        "access_token": "access",
+        "refresh_token": "refresh",
+    }
+
+    with patch(
+        "databricks.labs.community_connector_cli.quickbooks_setup."
+        "run_u2m_authorization_code_flow",
+        side_effect=fake_flow,
+    ):
+        tokens = authorize_quickbooks(
+            client_id="client",
+            client_secret="secret",
+            redirect_port=8765,
+            realm_id_resolver=lambda: " 123456789 ",
+            post=MagicMock(return_value=response),
+        )
+
+    assert tokens.realm_id == "123456789"
+
+
+def test_company_access_validation_proves_token_realm_pair():
+    response = MagicMock(status_code=200)
+    response.json.return_value = {"CompanyInfo": {"Id": "123456789"}}
+    get = MagicMock(return_value=response)
+
+    validate_quickbooks_company_access(
+        tokens=QuickBooksOAuthTokens("access", "refresh", "123456789"),
+        environment="sandbox",
+        minor_version="75",
+        get=get,
+    )
+
+    assert get.call_args.args[0] == (
+        "https://sandbox-quickbooks.api.intuit.com/v3/company/"
+        "123456789/companyinfo/123456789"
+    )
+    assert get.call_args.kwargs["params"] == {"minorversion": "75"}
+    assert get.call_args.kwargs["headers"]["Authorization"] == "Bearer access"
+
+
+def test_company_access_validation_rejects_wrong_realm_without_payload_leak():
+    response = MagicMock(status_code=401, text="sensitive QuickBooks response")
+
+    with pytest.raises(RuntimeError, match="HTTP 401") as exc_info:
+        validate_quickbooks_company_access(
+            tokens=QuickBooksOAuthTokens("access", "refresh", "123456789"),
+            environment="sandbox",
+            minor_version="75",
+            get=MagicMock(return_value=response),
+        )
+
+    assert "sensitive" not in str(exc_info.value)
 
 
 def test_job_runs_refresh_before_the_selected_pipeline():

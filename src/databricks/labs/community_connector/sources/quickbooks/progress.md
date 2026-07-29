@@ -28,6 +28,10 @@ payloads.
 - Hardened Intuit callback handling for case variants of `realmId`; a callback
   without a connected QuickBooks company now reports safe diagnostic field
   names and sandbox Development-key guidance without a Python traceback.
+- Added an interactive fallback for Intuit callbacks that omit `realmId`.
+  Setup asks for the numeric sandbox `companyId`, then verifies the issued
+  access token against that realm's CompanyInfo endpoint before any Databricks
+  mutation; a mistyped or cross-company realm therefore fails closed.
 - The connector's generated single-file Spark source is rebuilt before upload,
   preventing a workspace deployment from accidentally using stale code.
 - Added focused tests for dynamic naming, composite keys/delete options, OAuth
