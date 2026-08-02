@@ -1,0 +1,37 @@
+[
+  {
+    "entity_id": "charlie-897",
+    "id": "victor-5-pk0",
+    "name": "juliet-362",
+    "tenant_id": "zulu-569-pk0",
+    "_ramp_extracted_at": "2024-01-21T21:05:38Z"
+  },
+  {
+    "entity_id": "echo-843",
+    "id": "victor-4-pk1",
+    "name": "oscar-755",
+    "tenant_id": "lima-279-pk1",
+    "_ramp_extracted_at": "2024-01-29T07:31:32Z"
+  },
+  {
+    "entity_id": "whiskey-171",
+    "id": "hotel-18-pk2",
+    "name": "xray-218",
+    "tenant_id": "papa-646-pk2",
+    "_ramp_extracted_at": "2024-01-03T10:18:53Z"
+  },
+  {
+    "entity_id": "xray-673",
+    "id": "uniform--pk3",
+    "name": "alpha-308",
+    "tenant_id": "echo-276-pk3",
+    "_ramp_extracted_at": "2024-01-18T14:47:32Z"
+  },
+  {
+    "entity_id": "quebec-590",
+    "id": "whiskey--pk4",
+    "name": "juliet-923",
+    "tenant_id": "lima-677-pk4",
+    "_ramp_extracted_at": "2024-01-07T16:58:20Z"
+  }
+]

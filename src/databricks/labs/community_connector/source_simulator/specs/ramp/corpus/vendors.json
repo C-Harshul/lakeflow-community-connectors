@@ -1,0 +1,459 @@
+[
+  {
+    "accounting_vendor_remote_id": "november-882",
+    "address": {
+      "address_line_1": "kilo-151",
+      "address_line_2": "lima-304",
+      "city": "papa-709",
+      "country": "golf-560",
+      "postal_code": "quebec-687",
+      "state": "india-962"
+    },
+    "addresses": [
+      {
+        "address_line_1": "echo-581",
+        "address_line_2": "kilo-843",
+        "city": "foxtrot-576",
+        "country": "oscar-337",
+        "id": "hotel-217",
+        "is_default": true,
+        "postal_code": "yankee-364",
+        "state": "whiskey-130"
+      },
+      {
+        "address_line_1": "alpha-477",
+        "address_line_2": "bravo-704",
+        "city": "charlie-521",
+        "country": "victor-426",
+        "id": "xray-572",
+        "is_default": true,
+        "postal_code": "delta-272",
+        "state": "quebec-986"
+      }
+    ],
+    "billing_frequency": "alpha-422",
+    "contacts": [
+      "alpha-453"
+    ],
+    "country": "hotel-559",
+    "created_at": "2024-01-16T20:35:13Z",
+    "default_entity_id": "india-187",
+    "default_payment_method": {
+      "policy": "bravo-496",
+      "update_source": "victor-882"
+    },
+    "description": "uniform-917",
+    "external_vendor_id": "uniform-773",
+    "federal_tax_classification": "quebec-754",
+    "id": "sierra-2-pk0",
+    "is_active": true,
+    "is_deletable": false,
+    "merchant_id": "foxtrot-913",
+    "name": "zulu-447",
+    "name_legal": "victor-912",
+    "parent_vendor_id": "delta-109",
+    "sk_category_id": 95145,
+    "sk_category_name": "victor-594",
+    "state": "hotel-969",
+    "subsidiary": [],
+    "tax_address": {
+      "address_line_1": "foxtrot-918",
+      "address_line_2": "november-855",
+      "city": "echo-549",
+      "country": "kilo-341",
+      "postal_code": "mike-692",
+      "state": "charlie-451"
+    },
+    "total_spend_all_time": {
+      "amount": 31042,
+      "currency_code": "juliet-968",
+      "minor_unit_conversion_rate": 87788
+    },
+    "total_spend_last_30_days": {
+      "amount": 91690,
+      "currency_code": "india-544",
+      "minor_unit_conversion_rate": 81194
+    },
+    "total_spend_last_365_days": {
+      "amount": 81666,
+      "currency_code": "kilo-247",
+      "minor_unit_conversion_rate": 83827
+    },
+    "total_spend_ytd": {
+      "amount": 15255,
+      "currency_code": "hotel-500",
+      "minor_unit_conversion_rate": 12445
+    },
+    "vendor_owner_id": "zulu-494",
+    "vendor_type": "november-343",
+    "updated_at": "2024-01-01T00:00:00Z",
+    "tenant_id": "india-30-pk0",
+    "_ramp_window_end": "2024-01-01T00:00:00Z",
+    "_ramp_extracted_at": "2024-01-15T16:01:26Z"
+  },
+  {
+    "accounting_vendor_remote_id": "lima-882",
+    "address": {
+      "address_line_1": "kilo-475",
+      "address_line_2": "mike-502",
+      "city": "bravo-239",
+      "country": "uniform-978",
+      "postal_code": "romeo-142",
+      "state": "victor-306"
+    },
+    "addresses": [
+      {
+        "address_line_1": "romeo-862",
+        "address_line_2": "alpha-906",
+        "city": "oscar-382",
+        "country": "xray-728",
+        "id": "juliet-105",
+        "is_default": false,
+        "postal_code": "india-600",
+        "state": "tango-639"
+      },
+      {
+        "address_line_1": "oscar-489",
+        "address_line_2": "india-463",
+        "city": "victor-701",
+        "country": "xray-894",
+        "id": "juliet-868",
+        "is_default": true,
+        "postal_code": "foxtrot-269",
+        "state": "papa-588"
+      }
+    ],
+    "billing_frequency": "lima-481",
+    "contacts": [],
+    "country": "lima-743",
+    "created_at": "2024-01-31T20:47:05Z",
+    "default_entity_id": "foxtrot-450",
+    "default_payment_method": {
+      "policy": "romeo-777",
+      "update_source": "yankee-961"
+    },
+    "description": "alpha-306",
+    "external_vendor_id": "papa-900",
+    "federal_tax_classification": "foxtrot-686",
+    "id": "golf-605-pk1",
+    "is_active": false,
+    "is_deletable": false,
+    "merchant_id": "whiskey-999",
+    "name": "lima-239",
+    "name_legal": "romeo-384",
+    "parent_vendor_id": "kilo-376",
+    "sk_category_id": 13159,
+    "sk_category_name": "xray-163",
+    "state": "zulu-599",
+    "subsidiary": [
+      "delta-862"
+    ],
+    "tax_address": {
+      "address_line_1": "xray-974",
+      "address_line_2": "tango-842",
+      "city": "uniform-904",
+      "country": "papa-223",
+      "postal_code": "bravo-528",
+      "state": "india-836"
+    },
+    "total_spend_all_time": {
+      "amount": 20715,
+      "currency_code": "tango-162",
+      "minor_unit_conversion_rate": 88331
+    },
+    "total_spend_last_30_days": {
+      "amount": 17351,
+      "currency_code": "uniform-715",
+      "minor_unit_conversion_rate": 1254
+    },
+    "total_spend_last_365_days": {
+      "amount": 42772,
+      "currency_code": "tango-588",
+      "minor_unit_conversion_rate": 68652
+    },
+    "total_spend_ytd": {
+      "amount": 2246,
+      "currency_code": "zulu-457",
+      "minor_unit_conversion_rate": 99110
+    },
+    "vendor_owner_id": "romeo-730",
+    "vendor_type": "echo-233",
+    "updated_at": "2024-01-01T01:00:00Z",
+    "tenant_id": "india-21-pk1",
+    "_ramp_window_end": "2024-01-01T01:00:00Z",
+    "_ramp_extracted_at": "2024-01-21T00:10:59Z"
+  },
+  {
+    "accounting_vendor_remote_id": "sierra-789",
+    "address": {
+      "address_line_1": "november-171",
+      "address_line_2": "hotel-747",
+      "city": "zulu-507",
+      "country": "juliet-722",
+      "postal_code": "quebec-916",
+      "state": "juliet-952"
+    },
+    "addresses": [
+      {
+        "address_line_1": "india-376",
+        "address_line_2": "mike-782",
+        "city": "november-665",
+        "country": "november-943",
+        "id": "papa-761",
+        "is_default": false,
+        "postal_code": "yankee-846",
+        "state": "foxtrot-531"
+      },
+      {
+        "address_line_1": "tango-231",
+        "address_line_2": "yankee-530",
+        "city": "bravo-801",
+        "country": "sierra-790",
+        "id": "oscar-466",
+        "is_default": true,
+        "postal_code": "india-604",
+        "state": "alpha-744"
+      }
+    ],
+    "billing_frequency": "xray-279",
+    "contacts": [],
+    "country": "bravo-232",
+    "created_at": "2024-01-29T06:39:44Z",
+    "default_entity_id": "alpha-201",
+    "default_payment_method": {
+      "policy": "papa-353",
+      "update_source": "bravo-239"
+    },
+    "description": "kilo-167",
+    "external_vendor_id": "kilo-744",
+    "federal_tax_classification": "juliet-614",
+    "id": "golf-111-pk2",
+    "is_active": true,
+    "is_deletable": false,
+    "merchant_id": "delta-664",
+    "name": "tango-417",
+    "name_legal": "juliet-573",
+    "parent_vendor_id": "lima-617",
+    "sk_category_id": 82440,
+    "sk_category_name": "delta-879",
+    "state": "zulu-340",
+    "subsidiary": [
+      "xray-155",
+      "whiskey-244"
+    ],
+    "tax_address": {
+      "address_line_1": "juliet-416",
+      "address_line_2": "uniform-360",
+      "city": "hotel-154",
+      "country": "quebec-814",
+      "postal_code": "november-952",
+      "state": "sierra-673"
+    },
+    "total_spend_all_time": {
+      "amount": 41082,
+      "currency_code": "charlie-885",
+      "minor_unit_conversion_rate": 75653
+    },
+    "total_spend_last_30_days": {
+      "amount": 15986,
+      "currency_code": "charlie-429",
+      "minor_unit_conversion_rate": 72324
+    },
+    "total_spend_last_365_days": {
+      "amount": 59223,
+      "currency_code": "kilo-952",
+      "minor_unit_conversion_rate": 74334
+    },
+    "total_spend_ytd": {
+      "amount": 61506,
+      "currency_code": "bravo-934",
+      "minor_unit_conversion_rate": 29725
+    },
+    "vendor_owner_id": "echo-883",
+    "vendor_type": "golf-251",
+    "updated_at": "2024-01-01T02:00:00Z",
+    "tenant_id": "romeo-94-pk2",
+    "_ramp_window_end": "2024-01-01T02:00:00Z",
+    "_ramp_extracted_at": "2024-01-26T02:06:21Z"
+  },
+  {
+    "accounting_vendor_remote_id": "oscar-395",
+    "address": {
+      "address_line_1": "xray-904",
+      "address_line_2": "golf-901",
+      "city": "echo-250",
+      "country": "india-949",
+      "postal_code": "mike-152",
+      "state": "whiskey-908"
+    },
+    "addresses": [
+      {
+        "address_line_1": "whiskey-362",
+        "address_line_2": "romeo-212",
+        "city": "hotel-746",
+        "country": "xray-850",
+        "id": "juliet-767",
+        "is_default": false,
+        "postal_code": "bravo-420",
+        "state": "kilo-489"
+      }
+    ],
+    "billing_frequency": "lima-360",
+    "contacts": [
+      "oscar-199"
+    ],
+    "country": "yankee-248",
+    "created_at": "2024-01-06T16:41:17Z",
+    "default_entity_id": "foxtrot-743",
+    "default_payment_method": {
+      "policy": "bravo-441",
+      "update_source": "juliet-890"
+    },
+    "description": "hotel-360",
+    "external_vendor_id": "lima-386",
+    "federal_tax_classification": "zulu-447",
+    "id": "bravo-32-pk3",
+    "is_active": false,
+    "is_deletable": true,
+    "merchant_id": "uniform-813",
+    "name": "zulu-631",
+    "name_legal": "golf-814",
+    "parent_vendor_id": "romeo-730",
+    "sk_category_id": 81262,
+    "sk_category_name": "juliet-719",
+    "state": "bravo-232",
+    "subsidiary": [
+      "alpha-515",
+      "bravo-971"
+    ],
+    "tax_address": {
+      "address_line_1": "sierra-483",
+      "address_line_2": "sierra-335",
+      "city": "sierra-310",
+      "country": "mike-204",
+      "postal_code": "whiskey-159",
+      "state": "quebec-597"
+    },
+    "total_spend_all_time": {
+      "amount": 1035,
+      "currency_code": "bravo-519",
+      "minor_unit_conversion_rate": 97134
+    },
+    "total_spend_last_30_days": {
+      "amount": 63243,
+      "currency_code": "kilo-551",
+      "minor_unit_conversion_rate": 6337
+    },
+    "total_spend_last_365_days": {
+      "amount": 58877,
+      "currency_code": "papa-409",
+      "minor_unit_conversion_rate": 59498
+    },
+    "total_spend_ytd": {
+      "amount": 72701,
+      "currency_code": "kilo-558",
+      "minor_unit_conversion_rate": 49901
+    },
+    "vendor_owner_id": "uniform-655",
+    "vendor_type": "romeo-159",
+    "updated_at": "2024-01-01T03:00:00Z",
+    "tenant_id": "november-pk3",
+    "_ramp_window_end": "2024-01-01T03:00:00Z",
+    "_ramp_extracted_at": "2024-01-04T02:21:24Z"
+  },
+  {
+    "accounting_vendor_remote_id": "uniform-867",
+    "address": {
+      "address_line_1": "november-732",
+      "address_line_2": "india-461",
+      "city": "foxtrot-271",
+      "country": "uniform-641",
+      "postal_code": "lima-454",
+      "state": "quebec-477"
+    },
+    "addresses": [
+      {
+        "address_line_1": "lima-852",
+        "address_line_2": "golf-616",
+        "city": "whiskey-271",
+        "country": "romeo-845",
+        "id": "bravo-185",
+        "is_default": true,
+        "postal_code": "juliet-953",
+        "state": "yankee-337"
+      },
+      {
+        "address_line_1": "golf-631",
+        "address_line_2": "bravo-833",
+        "city": "delta-608",
+        "country": "yankee-658",
+        "id": "xray-161",
+        "is_default": true,
+        "postal_code": "delta-335",
+        "state": "kilo-143"
+      }
+    ],
+    "billing_frequency": "delta-289",
+    "contacts": [
+      "delta-123"
+    ],
+    "country": "echo-312",
+    "created_at": "2024-01-06T12:05:17Z",
+    "default_entity_id": "quebec-202",
+    "default_payment_method": {
+      "policy": "whiskey-985",
+      "update_source": "zulu-347"
+    },
+    "description": "echo-207",
+    "external_vendor_id": "echo-883",
+    "federal_tax_classification": "mike-762",
+    "id": "yankee-9-pk4",
+    "is_active": true,
+    "is_deletable": true,
+    "merchant_id": "alpha-574",
+    "name": "kilo-940",
+    "name_legal": "golf-972",
+    "parent_vendor_id": "quebec-144",
+    "sk_category_id": 95697,
+    "sk_category_name": "echo-453",
+    "state": "juliet-535",
+    "subsidiary": [
+      "tango-686",
+      "uniform-648"
+    ],
+    "tax_address": {
+      "address_line_1": "india-523",
+      "address_line_2": "xray-881",
+      "city": "uniform-584",
+      "country": "india-908",
+      "postal_code": "romeo-968",
+      "state": "juliet-506"
+    },
+    "total_spend_all_time": {
+      "amount": 23700,
+      "currency_code": "whiskey-954",
+      "minor_unit_conversion_rate": 11822
+    },
+    "total_spend_last_30_days": {
+      "amount": 1214,
+      "currency_code": "sierra-413",
+      "minor_unit_conversion_rate": 66657
+    },
+    "total_spend_last_365_days": {
+      "amount": 13634,
+      "currency_code": "victor-499",
+      "minor_unit_conversion_rate": 3786
+    },
+    "total_spend_ytd": {
+      "amount": 32141,
+      "currency_code": "kilo-612",
+      "minor_unit_conversion_rate": 86173
+    },
+    "vendor_owner_id": "mike-213",
+    "vendor_type": "mike-523",
+    "updated_at": "2024-01-01T04:00:00Z",
+    "tenant_id": "xray-931-pk4",
+    "_ramp_window_end": "2024-01-01T04:00:00Z",
+    "_ramp_extracted_at": "2024-01-20T14:31:38Z"
+  }
+]

@@ -1,0 +1,36 @@
+# Ramp Community Connector specification.
+
+display_name: Ramp
+connection:
+  parameters:
+    - name: client_id
+      type: string
+      required: true
+      description: >
+        OAuth 2.0 client ID for an internal Ramp application belonging to one
+        Ramp business.
+
+    - name: client_secret
+      type: string
+      required: true
+      secret: true
+      description: >
+        OAuth 2.0 client secret for the Ramp application. Unity Catalog uses
+        it for the token exchange; the connector receives only access_token.
+
+    - name: environment
+      type: string
+      required: false
+      description: >
+        Ramp API environment. Allowed values are production and sandbox;
+        defaults to production. The native UC OAuth definition below targets
+        production. Sandbox validation injects a sandbox token through local
+        test configuration until conditional token endpoints are supported.
+
+  oauth:
+    flow: m2m
+    scopes: "business:read transactions:read reimbursements:read vendors:read users:read departments:read locations:read"
+    token_url: https://api.ramp.com/developer/v1/token
+
+# Only these table-specific controls may pass through the UC connection.
+external_options_allowlist: "page_size,max_records_per_batch,window_seconds,lookback_seconds"

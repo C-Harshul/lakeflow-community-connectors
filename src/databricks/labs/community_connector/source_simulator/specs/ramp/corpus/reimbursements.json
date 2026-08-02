@@ -1,0 +1,284 @@
+[
+  {
+    "accounting_date": "2024-01-10T15:04:12Z",
+    "accounting_field_selections": "foxtrot-735",
+    "approved_at": "2024-01-03T04:30:35Z",
+    "attendees": "tango-177",
+    "created_at": "2024-01-01T15:43:07Z",
+    "direction": "BUSINESS_TO_USER",
+    "distance": 882.44,
+    "employee_id": "india-234",
+    "end_location": "alpha-529",
+    "entity_amount": {
+      "currency": "xray-667",
+      "value": 99733
+    },
+    "entity_id": "mike-795",
+    "fund_id": "romeo-350",
+    "id": "victor-4-pk0",
+    "line_items": "oscar-170",
+    "memo": "mike-772",
+    "merchant": "quebec-508",
+    "merchant_amount": {
+      "currency": "oscar-262",
+      "value": 91475
+    },
+    "merchant_id": "oscar-280",
+    "payee_amount": {
+      "currency": "lima-489",
+      "value": 29674
+    },
+    "payment_batch_id": "papa-690",
+    "payment_id": "kilo-470",
+    "payment_processed_at": "2024-01-19T07:17:24Z",
+    "receipts": [],
+    "spend_limit_id": "zulu-362",
+    "start_location": "november-947",
+    "state": "hotel-241",
+    "submitted_at": "2024-01-12T13:33:02Z",
+    "sync_status": "golf-143",
+    "synced_at": "2024-01-27T09:30:54Z",
+    "trace_id": {
+      "descriptor": "sierra-166",
+      "trace_id": "india-364"
+    },
+    "transaction_date": "2024-01-10",
+    "trip_id": "xray-419",
+    "type": "tango-946",
+    "updated_at": "2024-01-01T00:00:00Z",
+    "user_email": "papa-905",
+    "user_full_name": "echo-591",
+    "user_id": "charlie-467",
+    "waypoints": [
+      "whiskey-638"
+    ],
+    "tenant_id": "delta-14-pk0",
+    "_ramp_extracted_at": "2024-01-17T20:43:47Z"
+  },
+  {
+    "accounting_date": "2024-01-01T14:53:38Z",
+    "accounting_field_selections": "xray-775",
+    "approved_at": "2024-01-04T02:21:06Z",
+    "attendees": "golf-795",
+    "created_at": "2024-01-08T03:37:27Z",
+    "direction": "USER_TO_BUSINESS",
+    "distance": 632.67,
+    "employee_id": "alpha-172",
+    "end_location": "tango-522",
+    "entity_amount": {
+      "currency": "yankee-702",
+      "value": 7506
+    },
+    "entity_id": "kilo-813",
+    "fund_id": "foxtrot-478",
+    "id": "zulu-615-pk1",
+    "line_items": "hotel-892",
+    "memo": "echo-818",
+    "merchant": "quebec-297",
+    "merchant_amount": {
+      "currency": "sierra-444",
+      "value": 38605
+    },
+    "merchant_id": "quebec-329",
+    "payee_amount": {
+      "currency": "papa-651",
+      "value": 45840
+    },
+    "payment_batch_id": "charlie-187",
+    "payment_id": "quebec-907",
+    "payment_processed_at": "2024-01-13T20:26:25Z",
+    "receipts": [
+      "quebec-287",
+      "mike-730"
+    ],
+    "spend_limit_id": "victor-138",
+    "start_location": "charlie-342",
+    "state": "uniform-209",
+    "submitted_at": "2024-01-03T08:36:08Z",
+    "sync_status": "papa-856",
+    "synced_at": "2024-01-23T19:26:39Z",
+    "trace_id": {
+      "descriptor": "delta-928",
+      "trace_id": "papa-683"
+    },
+    "transaction_date": null,
+    "trip_id": "papa-475",
+    "type": "golf-293",
+    "updated_at": "2024-01-01T01:00:00Z",
+    "user_email": "echo-399",
+    "user_full_name": "golf-406",
+    "user_id": "hotel-715",
+    "waypoints": [
+      "zulu-733",
+      "november-822"
+    ],
+    "tenant_id": "bravo-43-pk1",
+    "_ramp_extracted_at": "2024-01-08T16:11:46Z"
+  },
+  {
+    "accounting_date": "2024-01-04T01:32:43Z",
+    "accounting_field_selections": "quebec-887",
+    "approved_at": "2024-01-05T00:03:58Z",
+    "attendees": "quebec-265",
+    "created_at": "2024-01-19T00:01:17Z",
+    "direction": "BUSINESS_TO_USER",
+    "distance": 719.08,
+    "employee_id": "bravo-417",
+    "end_location": "alpha-669",
+    "entity_amount": {
+      "currency": "uniform-679",
+      "value": 27139
+    },
+    "entity_id": "november-371",
+    "fund_id": "foxtrot-127",
+    "id": "bravo-79-pk2",
+    "line_items": "oscar-204",
+    "memo": "mike-459",
+    "merchant": "juliet-564",
+    "merchant_amount": {
+      "currency": "xray-330",
+      "value": 92701
+    },
+    "merchant_id": "foxtrot-463",
+    "payee_amount": {
+      "currency": "sierra-862",
+      "value": 97283
+    },
+    "payment_batch_id": "lima-812",
+    "payment_id": "charlie-236",
+    "payment_processed_at": "2024-01-01T19:41:02Z",
+    "receipts": [
+      "golf-449"
+    ],
+    "spend_limit_id": "victor-730",
+    "start_location": "zulu-106",
+    "state": "foxtrot-468",
+    "submitted_at": "2024-01-29T21:33:00Z",
+    "sync_status": "echo-215",
+    "synced_at": "2024-01-14T21:47:04Z",
+    "trace_id": {
+      "descriptor": "golf-741",
+      "trace_id": "mike-845"
+    },
+    "transaction_date": null,
+    "trip_id": "november-973",
+    "type": "delta-678",
+    "updated_at": "2024-01-01T02:00:00Z",
+    "user_email": "quebec-121",
+    "user_full_name": "whiskey-810",
+    "user_id": "xray-561",
+    "waypoints": [],
+    "tenant_id": "papa-224-pk2",
+    "_ramp_extracted_at": "2024-01-11T14:41:22Z"
+  },
+  {
+    "accounting_date": "2024-01-20T23:02:38Z",
+    "accounting_field_selections": "bravo-886",
+    "approved_at": "2024-01-10T16:18:51Z",
+    "attendees": "bravo-876",
+    "created_at": "2024-01-06T14:56:18Z",
+    "direction": "USER_TO_BUSINESS",
+    "distance": 15.65,
+    "employee_id": "november-210",
+    "end_location": "papa-749",
+    "entity_amount": {
+      "currency": "lima-813",
+      "value": 22962
+    },
+    "entity_id": "xray-524",
+    "fund_id": "bravo-220",
+    "id": "lima-327-pk3",
+    "line_items": "delta-580",
+    "memo": "foxtrot-918",
+    "merchant": "golf-668",
+    "merchant_amount": {
+      "currency": "papa-787",
+      "value": 73876
+    },
+    "merchant_id": "alpha-672",
+    "payee_amount": {
+      "currency": "xray-999",
+      "value": 70939
+    },
+    "payment_batch_id": "kilo-434",
+    "payment_id": "india-914",
+    "payment_processed_at": "2024-01-20T09:06:05Z",
+    "receipts": [],
+    "spend_limit_id": "zulu-403",
+    "start_location": "kilo-589",
+    "state": "november-506",
+    "submitted_at": "2024-01-22T22:18:21Z",
+    "sync_status": "juliet-918",
+    "synced_at": "2024-01-27T15:15:15Z",
+    "trace_id": {
+      "descriptor": "november-806",
+      "trace_id": "foxtrot-930"
+    },
+    "transaction_date": null,
+    "trip_id": "india-596",
+    "type": "uniform-399",
+    "updated_at": "2024-01-01T03:00:00Z",
+    "user_email": "foxtrot-823",
+    "user_full_name": "tango-678",
+    "user_id": "mike-401",
+    "waypoints": [],
+    "tenant_id": "november-pk3",
+    "_ramp_extracted_at": "2024-01-28T00:36:21Z"
+  },
+  {
+    "accounting_date": "2024-01-27T22:56:28Z",
+    "accounting_field_selections": "zulu-756",
+    "approved_at": "2024-01-13T19:49:14Z",
+    "attendees": "juliet-444",
+    "created_at": "2024-01-13T18:16:53Z",
+    "direction": "BUSINESS_TO_USER",
+    "distance": 873.63,
+    "employee_id": "kilo-835",
+    "end_location": "uniform-917",
+    "entity_amount": {
+      "currency": "sierra-436",
+      "value": 42112
+    },
+    "entity_id": "hotel-305",
+    "fund_id": "uniform-342",
+    "id": "bravo-27-pk4",
+    "line_items": "hotel-149",
+    "memo": "sierra-438",
+    "merchant": "charlie-772",
+    "merchant_amount": {
+      "currency": "uniform-783",
+      "value": 3658
+    },
+    "merchant_id": "lima-629",
+    "payee_amount": {
+      "currency": "alpha-451",
+      "value": 47283
+    },
+    "payment_batch_id": "uniform-733",
+    "payment_id": "bravo-339",
+    "payment_processed_at": "2024-01-26T17:18:14Z",
+    "receipts": [],
+    "spend_limit_id": "november-184",
+    "start_location": "romeo-684",
+    "state": "mike-816",
+    "submitted_at": "2024-01-08T23:39:59Z",
+    "sync_status": "papa-620",
+    "synced_at": "2024-01-16T03:00:55Z",
+    "trace_id": {
+      "descriptor": "echo-128",
+      "trace_id": "lima-553"
+    },
+    "transaction_date": null,
+    "trip_id": "november-242",
+    "type": "papa-822",
+    "updated_at": "2024-01-01T04:00:00Z",
+    "user_email": "victor-330",
+    "user_full_name": "papa-719",
+    "user_id": "kilo-961",
+    "waypoints": [
+      "uniform-491"
+    ],
+    "tenant_id": "alpha-83-pk4",
+    "_ramp_extracted_at": "2024-01-20T15:11:37Z"
+  }
+]

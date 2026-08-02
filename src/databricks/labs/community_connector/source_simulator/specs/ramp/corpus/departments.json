@@ -1,0 +1,32 @@
+[
+  {
+    "id": "hotel-31-pk0",
+    "name": "oscar-393",
+    "tenant_id": "romeo-15-pk0",
+    "_ramp_extracted_at": "2024-01-17T10:56:07Z"
+  },
+  {
+    "id": "november-pk1",
+    "name": "bravo-957",
+    "tenant_id": "charlie--pk1",
+    "_ramp_extracted_at": "2024-01-27T07:12:01Z"
+  },
+  {
+    "id": "zulu-261-pk2",
+    "name": "hotel-509",
+    "tenant_id": "zulu-818-pk2",
+    "_ramp_extracted_at": "2024-01-18T15:53:23Z"
+  },
+  {
+    "id": "papa-574-pk3",
+    "name": "juliet-996",
+    "tenant_id": "lima-859-pk3",
+    "_ramp_extracted_at": "2024-01-29T14:48:53Z"
+  },
+  {
+    "id": "november-pk4",
+    "name": "mike-453",
+    "tenant_id": "alpha-12-pk4",
+    "_ramp_extracted_at": "2024-01-03T16:18:23Z"
+  }
+]

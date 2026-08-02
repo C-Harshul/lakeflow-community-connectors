@@ -1,0 +1,34 @@
+connection_name: my_ramp_connection
+objects:
+  - table:
+      source_table: transactions
+      table_configuration:
+        page_size: "100"
+
+  - table:
+      source_table: reimbursements
+      table_configuration:
+        page_size: "100"
+
+  - table:
+      source_table: vendors
+      table_configuration:
+        page_size: "100"
+        max_records_per_batch: "5000"
+        window_seconds: "86400"
+        lookback_seconds: "300"
+
+  - table:
+      source_table: users
+      table_configuration:
+        page_size: "100"
+
+  - table:
+      source_table: departments
+      table_configuration:
+        page_size: "100"
+
+  - table:
+      source_table: locations
+      table_configuration:
+        page_size: "100"

@@ -1,0 +1,108 @@
+# Ramp Developer API endpoints selected for the initial connector.
+#
+# The six list endpoints use a custom handler for Ramp's keyset protocol. It
+# returns ``data`` plus a full same-origin ``page.next`` URL whose ``start``
+# value is the final ID of the current page. A page size of two in the test
+# configuration forces multi-page traversal for every five-record corpus.
+
+endpoints:
+  - path: /developer/v1/business
+    method: GET
+    corpus: business
+    response:
+      single_entity: true
+      pagination_style: none
+
+  - path: /developer/v1/transactions
+    method: GET
+    corpus: transactions
+    handler: databricks.labs.community_connector.source_simulator.specs.ramp.handlers.keyset:serve_list
+    response:
+      pagination_style: none
+      wrapper:
+        records_key: data
+        extras:
+          page: {next: null}
+    params:
+      state: {role: ignore}
+      synced_after: {role: filter, field: synced_at, op: gt}
+      start: {role: ignore}
+      page_size: {role: ignore}
+
+  - path: /developer/v1/reimbursements
+    method: GET
+    corpus: reimbursements
+    handler: databricks.labs.community_connector.source_simulator.specs.ramp.handlers.keyset:serve_list
+    response:
+      pagination_style: none
+      wrapper:
+        records_key: data
+        extras:
+          page: {next: null}
+    params:
+      direction: {role: filter, field: direction, op: eq}
+      updated_after: {role: filter, field: updated_at, op: gt}
+      synced_after: {role: filter, field: synced_at, op: gt}
+      start: {role: ignore}
+      page_size: {role: ignore}
+
+  - path: /developer/v1/vendors
+    method: GET
+    corpus: vendors
+    handler: databricks.labs.community_connector.source_simulator.specs.ramp.handlers.keyset:serve_list
+    response:
+      pagination_style: none
+      wrapper:
+        records_key: data
+        extras:
+          page: {next: null}
+    params:
+      include_draft: {role: ignore}
+      from_updated_at: {role: filter, field: updated_at, op: gt}
+      to_updated_at: {role: filter, field: updated_at, op: lte}
+      start: {role: ignore}
+      page_size: {role: ignore}
+
+  - path: /developer/v1/users
+    method: GET
+    corpus: users
+    handler: databricks.labs.community_connector.source_simulator.specs.ramp.handlers.keyset:serve_list
+    response:
+      pagination_style: none
+      wrapper:
+        records_key: data
+        extras:
+          page: {next: null}
+    params:
+      status: {role: filter, field: status, op: eq}
+      start: {role: ignore}
+      page_size: {role: ignore}
+
+  - path: /developer/v1/departments
+    method: GET
+    corpus: departments
+    handler: databricks.labs.community_connector.source_simulator.specs.ramp.handlers.keyset:serve_list
+    response:
+      pagination_style: none
+      wrapper:
+        records_key: data
+        extras:
+          page: {next: null}
+    params:
+      start: {role: ignore}
+      page_size: {role: ignore}
+
+  - path: /developer/v1/locations
+    method: GET
+    corpus: locations
+    handler: databricks.labs.community_connector.source_simulator.specs.ramp.handlers.keyset:serve_list
+    response:
+      pagination_style: none
+      wrapper:
+        records_key: data
+        extras:
+          page: {next: null}
+    params:
+      entity_id: {role: filter, field: entity_id, op: eq}
+      start: {role: ignore}
+      page_size: {role: ignore}
